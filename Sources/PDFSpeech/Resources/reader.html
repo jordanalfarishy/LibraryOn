@@ -86,8 +86,10 @@
       currentDocument = doc;
       const sectionIndex = section?.index;
       applyAppearance(doc);
-      blocks = Array.from(doc.body.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,blockquote,pre'))
-        .filter(el => !el.closest('nav,script,style') && el.textContent.trim());
+      const readableBlocks = 'h1,h2,h3,h4,h5,h6,p,li,blockquote,pre';
+      blocks = Array.from(doc.body.querySelectorAll(readableBlocks))
+        .filter(el => !el.closest('nav,script,style') &&
+                      !el.querySelector(readableBlocks) && el.textContent.trim());
       if (!blocks.length && doc.body.textContent.trim()) blocks = [doc.body];
       blocks.forEach((el, index) => el.setAttribute('data-pdf-speech-index', index));
       const style = doc.createElement('style');

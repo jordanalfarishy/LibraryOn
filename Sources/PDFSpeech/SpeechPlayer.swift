@@ -51,6 +51,13 @@ private enum PDFSpeechText {
 }
 
 enum TextSegments {
+    static func selectionMatches(_ selected: String?, segment: SpokenSegment) -> Bool {
+        guard let selected else { return false }
+        let normalized = PDFSpeechText.normalized(selected).text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized == segment.text
+    }
+
     static func startingAt(_ position: PDFTextPosition,
                            in original: [SpokenSegment],
                            pageText: String?) -> (segments: [SpokenSegment], index: Int)? {
@@ -148,6 +155,7 @@ enum TextSegments {
     var error: String?
     var onSegmentChange: ((Int, SpokenSegment) -> Void)?
     var onFinish: (() -> Void)?
+    var canAdvanceAutomatically: ((SpokenSegment, SpokenSegment) -> Bool)?
 
     @ObservationIgnored private let synthesizer = AVSpeechSynthesizer()
     @ObservationIgnored private var session = UUID()
@@ -256,6 +264,13 @@ enum TextSegments {
                   self.utteranceSessions.removeValue(forKey: ObjectIdentifier(utterance)) == self.session
             else { return }
             if self.currentIndex + 1 < self.segments.count {
+                let current = self.segments[self.currentIndex]
+                let next = self.segments[self.currentIndex + 1]
+                if self.canAdvanceAutomatically?(current, next) == false {
+                    self.isPlaying = false
+                    self.isPaused = false
+                    return
+                }
                 self.currentIndex += 1
                 self.speakCurrent()
             } else {

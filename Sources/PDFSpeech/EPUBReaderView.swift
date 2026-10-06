@@ -58,10 +58,18 @@ struct EPUBAppearance: Equatable {
         case "chapter":
             let incoming = payload["index"] as? Int ?? 0
             let paragraphs = payload["paragraphs"] as? [String] ?? []
-            let start = firstChapter ? store.value(for: book.id)?.sentenceIndex ?? 0 : 0
+            if !firstChapter, incoming == chapter, paragraphs == currentParagraphs {
+                return
+            }
+            let start = firstChapter ? store.value(for: book.id)?.sentenceIndex ?? 0 :
+                (incoming == chapter ? player.currentIndex : 0)
             firstChapter = false
             chapter = incoming
-            let segments = TextSegments.fromParagraphs(paragraphs, chapter: incoming)
+            let readingDocument = ReadingDocument.epub(
+                chapter: incoming, paragraphs: paragraphs,
+                cfi: payload["cfi"] as? String ?? currentCFI,
+                sourceVersion: EPUBArchive.sourceVersion(for: book))
+            let segments = readingDocument.spokenSegments
             originalSegments = segments
             currentParagraphs = paragraphs
             player.setSegments(segments, startAt: start)

@@ -41,4 +41,16 @@ final class TextSelectionTests: XCTestCase {
         XCTAssertEqual(start.segments[start.index + 1].text, "Masih di bab yang sama.")
         XCTAssertEqual(start.segments[start.index].paragraph, 1)
     }
+
+    func testUnicodeAbbreviationAndWrappedLineKeepSentenceOrderAndSourceOffsets() throws {
+        let text = "Dr. Budi bertemu José. Mereka mem-\nbaca 日本語 bersama. Selesai!"
+        let segments = TextSegments.fromPDFPage(text, page: 3)
+        XCTAssertEqual(segments.map(\.text),
+                       ["Dr. Budi bertemu José.", "Mereka membaca 日本語 bersama.", "Selesai!"])
+        for segment in segments {
+            let range = try XCTUnwrap(segment.range)
+            XCTAssertTrue(TextSegments.selectionMatches((text as NSString).substring(with: range),
+                                                        segment: segment))
+        }
+    }
 }

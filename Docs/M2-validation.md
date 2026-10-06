@@ -1,0 +1,16 @@
+# Validasi M2 — mesin dokumen dan Reader
+
+Tanggal: 6 Oktober 2026. Build lokal: **0.4.1 (13)**. Status gate: **belum lulus**; T13 dan T14 selesai, T12/T15/T16/T17 masih sebagian.
+
+| Area | Bukti saat ini | Hasil |
+| --- | --- | --- |
+| Kontrak dokumen | `ReadingDocument`, `TextSegment`, dan `ReadingLocator` memetakan segmen PDF ke halaman/offset UTF-16 serta EPUB ke bab/paragraf/offset/CFI. Cache teks PDF memakai versi sumber dan extractor, ditulis atomik; data rusak atau usang diekstrak ulang. Arsip EPUB diekstrak ke cache lokal berversi. | Lulus untuk pemetaan yang diuji; cache pemetaan EPUB per bab belum persisten |
+| PDF asli dan teks | PDF dapat dibuka sebelum ekstraksi seluruh teks selesai. Halaman pertama dan batch 16 halaman berikutnya muncul bertahap. Zoom, outline, navigasi halaman, tampilan teks yang dapat disalin, aksi Baca per kalimat, serta tombol dari kalimat ke halaman PDF tersedia. Sorotan PDF hanya dipasang jika seleksi sumber cocok dengan teks kalimat. | Lulus pada corpus sintetis; TTS masih menunggu ekstraksi seluruh halaman |
+| Halaman tanpa teks | PDF gambar ditandai tanpa teks. PDF campuran dengan halaman teks–gambar–teks mempertahankan urutan halaman; TTS berhenti sebelum melompati halaman tanpa teks dan menyediakan tindakan lewati. | Klasifikasi dan batas halaman lulus pada tes; kontrol lewati belum diuji langsung pada UI build QA |
+| Segmentasi | Kalimat dengan singkatan, Unicode, dan kata yang terpotong di pergantian baris mempertahankan offset sumber. Seluruh 400 kalimat referensi pada 10 PDF dan 10 EPUB sintetis muncul dalam urutan yang benar. | Lulus pada corpus utama; urutan PDF dua kolom di luar dukungan utama |
+| EPUB | Build QA membuka EPUB 2/3 lokal. Pada `epub-04.epub`, tautan catatan kaki membuka bab 2; daftar isi kembali ke bab 1; perubahan font ke 110% mempertahankan bab 2. Render ulang bab yang sama tidak mereset indeks kalimat audio. Konten HTTP/HTTPS dan skrip buku diblokir oleh jalur yang sudah diuji pada M0. | Lulus untuk skenario tersebut; CFI intra-bab setelah resize/font/spasi dan corpus buku nyata masih perlu uji |
+| Regresi | Suite macOS lengkap menjalankan tes PDF/EPUB, pustaka, watcher, Vision, progres, dan manga. Build release 0.4.1 (13) berhasil ditandatangani ad-hoc dan lolos `codesign --verify --deep --strict`. | **51 tes lokal lulus**; run CI M2 tersedia di [riwayat workflow](https://github.com/jordanalfarishy/LibraryOn/actions/workflows/macos.yml) setelah commit |
+
+Pengujian lokal memakai `swift test --disable-sandbox --cache-path /private/tmp/pdf-speech-build-cache --manifest-cache local --scratch-path .build` dengan cache modul di `/private/tmp`. Tes watcher dan Vision perlu dijalankan di luar sandbox tool untuk memperoleh layanan macOS yang sama dengan aplikasi. Uji UI memakai bundle QA terpisah dan corpus `Tests/Fixtures/M0/documents`, sehingga data pustaka pengguna tidak berubah.
+
+Sisa gate M2: izinkan TTS memakai segmen PDF yang sudah siap sambil menjamin audio tidak menandai buku selesai sebelum ekstraksi berakhir; persistensikan pemetaan teks EPUB per bab dengan versi sumber/extractor; uji posisi CFI di dalam bab setelah resize/font/spasi dan jalankan sampel buku nyata yang lebih beragam. Batas ukuran dokumen, audit aksesibilitas, dan benchmark p95 tetap pada validasi rilis M4.

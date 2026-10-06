@@ -4,6 +4,10 @@ import WebKit
 import ZIPFoundation
 
 enum EPUBArchive {
+    static func sourceVersion(for book: BookFile) -> String {
+        "epub-v2:\(book.size):\(book.modifiedAt.timeIntervalSince1970)"
+    }
+
     static func prepare(_ book: BookFile) throws -> URL {
         let manager = FileManager.default
         let cache = try manager.url(for: .cachesDirectory, in: .userDomainMask,
@@ -13,7 +17,7 @@ enum EPUBArchive {
         let name = book.id.replacingOccurrences(of: ":", with: "-")
         let destination = parent.appendingPathComponent(name, isDirectory: true)
         let marker = destination.appendingPathComponent(".source-version")
-        let version = "epub-v2:\(book.size):\(book.modifiedAt.timeIntervalSince1970)"
+        let version = sourceVersion(for: book)
         if (try? String(contentsOf: marker, encoding: .utf8)) == version,
            manager.fileExists(atPath: destination.appendingPathComponent("META-INF/container.xml").path) { return destination }
 

@@ -218,6 +218,12 @@ private final class PDFCanvasView: PDFView {
             }
         }
     }
+
+    func clearProgrammaticSelection() {
+        guard programmaticSelectionKey != nil else { return }
+        programmaticSelectionKey = nil
+        setCurrentSelection(nil, animate: false)
+    }
 }
 
 private struct PDFCanvas: NSViewRepresentable {
@@ -260,6 +266,7 @@ private struct PDFCanvas: NSViewRepresentable {
             let key = "\(pageNumber):\(range.location):\(range.length)"
             guard range.location != NSNotFound, range.length > 0,
                   key != view.programmaticSelectionKey else { return }
+            view.programmaticSelectionKey = nil
             DispatchQueue.main.async {
                 pageIndex = pageNumber
                 selectedPosition = PDFTextPosition(page: pageNumber, offset: range.location)
@@ -281,7 +288,12 @@ private struct PDFCanvas: NSViewRepresentable {
         }
         guard let segment, let range = segment.range,
               let page = document.page(at: segment.page),
-              let selection = page.selection(for: range) else { return }
+              let selection = page.selection(for: range),
+              TextSegments.selectionMatches(selection.string, segment: segment) else {
+            view.clearProgrammaticSelection()
+            context.coordinator.lastHighlightKey = nil
+            return
+        }
         let key = "\(segment.page):\(range.location):\(range.length)"
         guard context.coordinator.lastHighlightKey != key else { return }
         context.coordinator.lastHighlightKey = key
@@ -314,13 +326,19 @@ struct PDFReaderView: View {
     let book: BookFile
     @State private var player = SpeechPlayer()
     @State private var document: PDFDocument?
+    @State private var readingDocument: ReadingDocument?
+    @State private var preparingText = true
+    @State private var extractionSession = UUID()
+    @State private var preparationError: String?
+    @State private var previewSegment: SpokenSegment?
+    @State private var pendingUnreadablePage: Int?
+    @State private var acknowledgedLeadingGap = false
     @State private var showText = false
     @State private var mangaEnabled = false
     @State private var mangaOverlay: [MangaOverlayBlock] = []
     @State private var pageIndex = 0
     @State private var zoomMode: PDFZoomMode = .fitPage
     @State private var selectedPosition: PDFTextPosition?
-    @State private var originalSegments: [SpokenSegment] = []
     @State private var outlineEntries: [PDFOutlineEntry] = []
     @State private var bookmarks: [ReadingBookmark] = []
     @State private var loadError: String?
@@ -331,6 +349,10 @@ struct PDFReaderView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(book.title).font(.headline).lineLimit(1)
                     Text(book.relativePath).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                if let label = readingDocument?.pdfContentLabel {
+                    Text(preparingText ? "Memindai teks PDF" : label)
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Menu {
@@ -395,8 +417,8 @@ struct PDFReaderView: View {
                 } else {
                     HStack(spacing: 0) {
                         PDFCanvas(document: document,
-                                  segment: player.isPlaying || player.isPaused
-                                    ? player.segments[safe: player.currentIndex] : nil,
+                                  segment: previewSegment ?? ((player.isPlaying || player.isPaused)
+                                    ? player.segments[safe: player.currentIndex] : nil),
                                   zoomMode: zoomMode,
                                   translations: mangaEnabled ? mangaOverlay : [],
                                   pageIndex: $pageIndex,
@@ -419,6 +441,36 @@ struct PDFReaderView: View {
             }
 
             Divider()
+            if preparingText && document != nil {
+                if let preparationError {
+                    Text(preparationError).font(.caption).foregroundStyle(.orange).padding(.top, 6)
+                } else {
+                    ProgressView("Menyiapkan teks PDF… \(readingDocument?.sections.count ?? 0)/\(document?.pageCount ?? 0) halaman")
+                        .controlSize(.small).padding(.top, 6)
+                }
+            }
+            if readingDocument?.sections.contains(where: { $0.index == pageIndex && $0.status == .needsOCR }) == true {
+                Text("Halaman ini tidak memiliki teks. OCR diperlukan untuk mendengarkannya.")
+                    .font(.caption).foregroundStyle(.orange).padding(.top, 6)
+            }
+            if let pendingUnreadablePage {
+                HStack {
+                    Text("Halaman \(pendingUnreadablePage + 1) tidak memiliki teks; bacaan dijeda.")
+                        .font(.caption).foregroundStyle(.orange)
+                    Button("Lewati halaman") {
+                        acknowledgedLeadingGap = true
+                        self.pendingUnreadablePage = nil
+                        if player.isPlaying { return }
+                        if player.currentIndex + 1 < player.segments.count,
+                           player.segments[player.currentIndex].page < pendingUnreadablePage {
+                            player.next()
+                        } else {
+                            player.play()
+                        }
+                    }
+                }
+                .padding(.top, 6)
+            }
             if let error = player.error {
                 Text(error).font(.caption).foregroundStyle(.orange).padding(.top, 6)
             }
@@ -426,13 +478,18 @@ struct PDFReaderView: View {
                            leading: pageControls)
         }
         .onAppear(perform: load)
+        .task { await prepareText() }
         .onChange(of: pageIndex) { _, newPage in
             if document != nil { library.progressStore.savePDFView(book.id, page: newPage) }
+            if let previewSegment, previewSegment.page != newPage { self.previewSegment = nil }
         }
         .onChange(of: showText) { _, newValue in
             if newValue { mangaEnabled = false }
         }
-        .onDisappear { player.stop() }
+        .onDisappear {
+            extractionSession = UUID()
+            player.stop()
+        }
     }
 
     private var pageControls: some View {
@@ -477,26 +534,44 @@ struct PDFReaderView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 20) {
-                    ForEach(Array(player.segments.enumerated()), id: \.offset) { index, segment in
-                        Button {
-                            player.jump(to: index)
-                        } label: {
-                            Text(segment.text)
-                                .font(.system(size: 17))
-                                .lineSpacing(6)
-                                .multilineTextAlignment(.leading)
-                                .foregroundStyle(.primary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 11)
-                                .padding(.vertical, 4)
-                                .background(index == player.currentIndex &&
-                                            (player.isPlaying || player.isPaused)
-                                            ? AppTheme.accent.opacity(0.18) : .clear,
-                                            in: RoundedRectangle(cornerRadius: 6))
+                    if let readingDocument {
+                        ForEach(readingDocument.sections, id: \.index) { section in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Halaman \(section.index + 1)")
+                                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                                if section.status == .needsOCR {
+                                    Text("Tidak ada teks pada halaman ini. Gunakan tampilan PDF untuk melihatnya.")
+                                        .foregroundStyle(.secondary)
+                                }
+                                ForEach(section.firstSegment..<(section.firstSegment + section.segmentCount), id: \.self) { index in
+                                    let segment = readingDocument.segments[index].spoken
+                                    HStack(alignment: .top, spacing: 10) {
+                                        Text(segment.text)
+                                            .font(.system(size: 17)).lineSpacing(6)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .textSelection(.enabled)
+                                        Button("Baca") {
+                                            player.setSegments(readingDocument.spokenSegments, startAt: index)
+                                            player.play()
+                                        }
+                                        .disabled(preparingText)
+                                        .help("Baca mulai kalimat ini")
+                                        Button("PDF") {
+                                            previewSegment = segment
+                                            pageIndex = segment.page
+                                            showText = false
+                                        }
+                                        .help("Buka lokasi kalimat di PDF")
+                                    }
+                                    .padding(.horizontal, 11).padding(.vertical, 5)
+                                    .background(index == player.currentIndex &&
+                                                (player.isPlaying || player.isPaused)
+                                                ? AppTheme.accent.opacity(0.18) : .clear,
+                                                in: RoundedRectangle(cornerRadius: 6))
+                                    .id(index)
+                                }
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .id(index)
-                        .accessibilityLabel("Baca dari sini: \(segment.text)")
                     }
                 }
                 .frame(maxWidth: 720)
@@ -522,23 +597,54 @@ struct PDFReaderView: View {
         outlineEntries = collectOutline(from: loaded)
         bookmarks = library.progressStore.bookmarks(for: book.id)
         document = loaded
-        var segments: [SpokenSegment] = []
-        for pageIndex in 0..<loaded.pageCount {
-            if let text = loaded.page(at: pageIndex)?.string {
-                segments += TextSegments.fromPDFPage(text, page: pageIndex)
+    }
+
+    @MainActor private func prepareText() async {
+        let session = UUID()
+        extractionSession = session
+        do {
+            let worker = Task.detached(priority: .userInitiated) {
+                try PDFReadingAdapter.load(book) { partial in
+                    Task { @MainActor in
+                        guard extractionSession == session,
+                              partial.sections.count > (readingDocument?.sections.count ?? 0) else { return }
+                        readingDocument = partial
+                    }
+                }
             }
+            let result = try await withTaskCancellationHandler {
+                try await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            guard !Task.isCancelled, extractionSession == session else { return }
+            readingDocument = result
+            preparingText = false
+            player.setSegments(result.spokenSegments,
+                               startAt: library.progressStore.value(for: book.id)?.sentenceIndex ?? 0)
+            if result.segments.isEmpty {
+                player.error = "PDF ini tidak memiliki teks yang dapat dibaca. Dokumen scan memerlukan OCR."
+            }
+            player.canAdvanceAutomatically = { current, next in
+                guard let missing = result.unreadablePage(after: current.page,
+                                                          before: next.page) else { return true }
+                pendingUnreadablePage = missing
+                return false
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            guard extractionSession == session else { return }
+            preparationError = "Teks PDF gagal disiapkan: \(error.localizedDescription)"
+            return
         }
-        originalSegments = segments
-        player.setSegments(segments, startAt: saved?.sentenceIndex ?? 0)
         player.onSegmentChange = { [store = library.progressStore, id = book.id] index, segment in
             store.savePDFAudio(id, sentence: index)
             pageIndex = segment.page
+            previewSegment = nil
         }
         player.onFinish = { [store = library.progressStore, id = book.id] in
             store.markFinished(id)
-        }
-        if segments.isEmpty {
-            player.error = "PDF ini tidak memiliki teks yang dapat dibaca. Dokumen scan memerlukan OCR."
         }
     }
 
@@ -577,12 +683,22 @@ struct PDFReaderView: View {
 
     private func playFromSelection() {
         guard let position = selectedPosition else {
+            if !acknowledgedLeadingGap, player.currentIndex == 0,
+               let firstPage = player.segments.first?.page, firstPage > 0,
+               let missing = readingDocument?.sections.first(where: {
+                   $0.status == .needsOCR && $0.index < firstPage
+               }) {
+                pendingUnreadablePage = missing.index
+                return
+            }
+            pendingUnreadablePage = nil
             player.play()
             return
         }
+        pendingUnreadablePage = nil
         selectedPosition = nil
         let pageText = document?.page(at: position.page)?.string
-        guard let start = TextSegments.startingAt(position, in: originalSegments,
+        guard let start = TextSegments.startingAt(position, in: readingDocument?.spokenSegments ?? [],
                                                   pageText: pageText) else {
             player.error = "Tidak ada teks yang dapat dibaca setelah pilihan ini."
             return
