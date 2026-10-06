@@ -2,12 +2,12 @@
 
 | Atribut | Nilai |
 | --- | --- |
-| Versi | 2.3 — kemajuan M2 mesin dokumen |
+| Versi | 2.4 — M2 lulus, M3 dimulai |
 | Tanggal | 6 Oktober 2026 |
 | Nama aplikasi | LibraryOn |
 | Platform | Aplikasi native macOS, minimum macOS 14; Apple Silicon untuk MVP |
 | Fokus | Membaca dan mendengarkan PDF/EPUB dengan text-to-speech; terjemahan manga PDF per halaman pada P1 |
-| Status | Build 0.4.1 (13); gate M0 dan M1 lulus, M2 sedang dikerjakan |
+| Status | Build 0.5.0 (14); gate M0–M2 lulus, M3 sedang dikerjakan |
 
 ## 1. Ringkasan produk
 
@@ -27,16 +27,16 @@ Status di bawah merujuk pada kode prototipe yang ada, **bukan** tanda bahwa acce
 | --- | --- | --- | --- |
 | Pustaka folder | Sebagian | Beberapa folder akar dengan akses persisten, indeks lokal berversi, scan bertahap, watcher, relink buku hilang, dan konfirmasi isi berubah; sidebar, breadcrumb, grid/daftar, pencarian nama, urutan nama/terakhir dibaca/terakhir diubah, serta progres per buku; root dan subfolder pulih saat relaunch | Benchmark p95 1.000 buku, drag-and-drop langsung di build sandbox, serta audit keyboard/VoiceOver menyeluruh masih menjadi validasi beta |
 | Sampul dan identitas visual | Ada | Pratinjau halaman pertama PDF/EPUB sebagai sampul; ikon terang/gelap dari `AppIcon` dengan margin Dock; aksen aplikasi mengikuti ikon | Beberapa halaman EPUB yang tidak dapat dirender masih memakai placeholder |
-| PDF Reader | Sebagian | Tampilan asli/teks, halaman atas/bawah, zoom, outline, seleksi kata untuk mulai TTS; teks disiapkan di latar belakang dengan batch pertama lalu tiap 16 halaman, dan dicache menurut versi file; halaman tanpa teks ditandai dan tidak dilompati otomatis saat audio melewatinya; tampilan teks dapat disalin serta membuka lokasi sumber | TTS masih menunggu seluruh ekstraksi selesai; OCR TTS umum dan urutan dua kolom belum ada |
-| EPUB Reader | Sebagian | EPUB 2/3 reflowable tampil pada build sandbox dengan bab, daftar isi, CFI, footnote, font, spasi, dan tema; konten HTTP/HTTPS diblokir; EPUB dengan skrip/interaksi aktif ditolak; render ulang bab yang sama tidak mereset kalimat audio | Belum ada dukungan fixed-layout/interaktif; uji locator dalam bab setelah resize dan ragam buku nyata masih diperlukan |
+| PDF Reader | Sebagian | Tampilan asli/teks, halaman atas/bawah, zoom, outline, seleksi kata untuk mulai TTS; teks dan antrean audio tersedia bertahap dari halaman pertama lalu tiap 16 halaman, dengan cache berversi; halaman tanpa teks ditandai dan tidak dilompati otomatis; teks dapat disalin serta membuka lokasi sumber | OCR TTS umum dan urutan dua kolom belum ada; QA dokumen nyata dan beban besar ada di M4 |
+| EPUB Reader | Sebagian | EPUB 2/3 reflowable tampil pada build sandbox dengan bab, daftar isi, CFI, footnote, font, spasi, dan tema; cache pemetaan per bab berversi; konten HTTP/HTTPS diblokir; EPUB dengan skrip/interaksi aktif ditolak; locator dalam bab panjang bertahan setelah font, spasi, resize, dan reopen | Belum ada dukungan fixed-layout/interaktif; ragam buku nyata masih perlu validasi beta |
 | Terjemahan manga PDF | Sebagian | Tombol Reader pada macOS 15+, OCR halaman aktif, pilihan Jepang → Indonesia/Inggris, terjemahan lokal, panel hasil, overlay sementara untuk gambar dan layer teks, sakelar Asli/Terjemahan, fallback per dialog, dan cache lokal maksimal 20 halaman; persiapan model bahasa serta statusnya berada di jendela utama agar tetap terlihat saat panel ditutup | Baru diuji dengan PDF sintetis; unduhan model yang belum terpasang, tulisan vertikal/furigana, halaman berotasi, kecocokan overlay pada manga nyata, latensi, memori, dan alur UI menyeluruh belum divalidasi |
 | Kontrol data lokal | Sebagian | Bersihkan Cache menghapus data yang dapat dibangun ulang; Reset Progres dan Penanda memakai konfirmasi terpisah; tes memastikan cache tidak menghapus progres | Belum diuji dengan koleksi besar dan skenario proses aktif/akses folder hilang |
-| TTS | Sebagian | Suara sistem, play/pause, kalimat sebelum/sesudah, slider kecepatan, sorotan aktif; kontrol bawah dengan player di tengah | Preview suara, bahasa per buku, media keys, dan uji audio panjang belum ada |
+| TTS | Sebagian | Suara sistem, play/pause, kalimat sebelum/sesudah, slider kecepatan, sorotan aktif; bahasa dan suara disimpan per buku, menu pratinjau tersedia; kontrol bawah dengan player di tengah | Media keys, QA audio preview langsung, perangkat tanpa suara terpilih, dan uji audio panjang belum selesai |
 | Posisi dan penanda | Sebagian | Halaman visual PDF dan indeks kalimat audio disimpan terpisah; EPUB memakai CFI dan indeks kalimat; bookmark PDF/EPUB dapat dibuat, dibuka, dihapus | Resume dari offset kata terseleksi, validasi locator saat isi file berubah, dan uji reopen/crash menyeluruh belum ada |
 | Bar progres per buku | Sebagian | Grid/daftar menampilkan bar posisi untuk setiap file: halaman/total halaman PDF, bab/total bagian EPUB, atau kosong sebelum dibuka | Persentase EPUB masih perkiraan berbasis bab; belum mengukur posisi di dalam bab dan belum menguji migrasi data pada semua instalasi lama |
 | Aksesibilitas dan distribusi | Sebagian | Cmd+O, Enter, panah halaman PDF, label kontrol dasar, build aplikasi lokal bertanda tangan ad-hoc | Audit VoiceOver/keyboard, signing pengembang, notarization, dan uji Mac bersih belum ada |
 
-Build dan tes otomatis M2: **51 tes lokal lulus** mencakup kontrak locator, cache dokumen, PDF campuran, render ulang EPUB, serta urutan 400 kalimat referensi. Build lokal 0.4.1 (13) lulus verifikasi tanda tangan. [GitHub Actions run M1](https://github.com/jordanalfarishy/LibraryOn/actions/runs/37441426144) lulus untuk tes, build, signature, dan entitlement; verifikasi CI commit M2 tercatat di [riwayat workflow](https://github.com/jordanalfarishy/LibraryOn/actions/workflows/macos.yml). Sintesis suara Indonesia/Inggris tanpa jaringan menghasilkan frame audio dan callback. Detail ada di [validasi M0](Docs/M0-validation.md), [validasi M1](Docs/M1-validation.md), dan [validasi M2](Docs/M2-validation.md). Hasil ini belum membuktikan alur UI unduhan model yang belum terpasang, kualitas manga nyata, atau target rilis di Bagian 8.
+Build dan tes otomatis: **56 tes lokal lulus** mencakup kontrak locator, cache kedua format, antrean PDF bertahap, PDF campuran, render ulang EPUB, pilihan suara per buku, serta urutan 400 kalimat referensi. Build lokal 0.5.0 (14) lulus verifikasi tanda tangan. [GitHub Actions M2 sebelumnya](https://github.com/jordanalfarishy/LibraryOn/actions/runs/37446077059) lulus untuk tes, build, signature, dan entitlement; CI perubahan terbaru akan diperiksa setelah push. Sintesis suara Indonesia/Inggris tanpa jaringan menghasilkan frame audio dan callback pada M0. Detail ada di [validasi M0](Docs/M0-validation.md), [validasi M1](Docs/M1-validation.md), [validasi M2](Docs/M2-validation.md), dan [validasi M3](Docs/M3-validation.md). Hasil ini belum membuktikan alur UI unduhan model yang belum terpasang, kualitas manga nyata, atau target rilis di Bagian 8.
 
 **Kemajuan B03 — sebagian:** Pipeline halaman aktif sudah berjalan dari PDFKit ke Vision dan Translation framework. Hasil tampil pada panel dan overlay sementara PDF gambar/layer teks yang dapat dimatikan tanpa menulis ke file sumber; latar overlay telah diperiksa lewat render PDF. Berpindah halaman membatalkan pekerjaan sebelumnya dan cache lokal dibatasi 20 halaman, dapat dipakai setelah proses baru, serta dibedakan menurut versi file, halaman, bahasa, dan pipeline. Respons batch dicocokkan ke dialog melalui ID; kegagalan batch memicu percobaan per dialog, sementara blok yang gagal mempertahankan teks asli. Persiapan model dipindahkan dari panel ke jendela utama; indikator status tetap tampil ketika panel ditutup dan memantau hingga model tersedia, dengan tindakan Coba Lagi. Pasangan Jepang → Indonesia berhasil diuji secara lokal dengan kalimat sintetis pada Mac pengembangan. B03 tetap belum selesai sampai corpus manga nyata, ketepatan overlay pada ragam tata letak, performa, fallback kegagalan per blok, dan perilaku model yang belum terpasang diverifikasi.
 
@@ -395,7 +395,7 @@ Keputusan awal yang bisa diterapkan tanpa menunda dokumen: macOS 14+, Apple Sili
 
 ## 12. Daftar task implementasi
 
-Daftar ini memuat **35 task MVP dan 11 task backlog**. Status **Sebagian** berarti implementasi awal sudah ada tetapi *definition of done* belum terpenuhi; **Belum** berarti task belum dimulai secara berarti; **Selesai** hanya dipakai setelah seluruh kriteria dan verifikasinya lulus. Saat ini **18 task MVP Sebagian, 3 Belum, dan 14 Selesai**. Owner berikut adalah peran, bukan penugasan kepada orang tertentu. Dependensi menyatakan task yang harus selesai sebelum output task dapat dinyatakan tuntas. ID lama dipertahankan; T33–T35 adalah tambahan untuk pustaka folder dan ditempatkan pada milestone terkait.
+Daftar ini memuat **35 task MVP dan 11 task backlog**. Status **Sebagian** berarti implementasi awal sudah ada tetapi *definition of done* belum terpenuhi; **Belum** berarti task belum dimulai secara berarti; **Selesai** hanya dipakai setelah seluruh kriteria dan verifikasinya lulus. Saat ini **14 task MVP Sebagian, 3 Belum, dan 18 Selesai**. Owner berikut adalah peran, bukan penugasan kepada orang tertentu. Dependensi menyatakan task yang harus selesai sebelum output task dapat dinyatakan tuntas. ID lama dipertahankan; T33–T35 adalah tambahan untuk pustaka folder dan ditempatkan pada milestone terkait.
 
 ### Milestone 0 — validasi fondasi
 
@@ -429,14 +429,14 @@ Daftar ini memuat **35 task MVP dan 11 task backlog**. Status **Sebagian** berar
 
 | Status | ID | Task | Owner | Dependensi | Definition of done |
 | --- | --- | --- | --- | --- | --- |
-| Sebagian | T12 | Buat ReadingDocument, TextSegment, locator, dan cache berversi | Engineer | T03–T05, T08 | Kontrak kedua format sama; cache memakai versi sumber/extractor dan pemetaan dapat diuji |
+| Selesai | T12 | Buat ReadingDocument, TextSegment, locator, dan cache berversi | Engineer | T03–T05, T08 | Kontrak kedua format sama; cache memakai versi sumber/extractor dan pemetaan dapat diuji |
 | Selesai | T13 | Bangun adapter PDF dan tampilan asli | Engineer | T12, T09 | Halaman, zoom, outline, klasifikasi scan/campuran, dan mapping bekerja |
 | Selesai | T14 | Bangun normalisasi dan segmentasi kalimat | Engineer | T12 | Baris terpotong, singkatan, Unicode, dan lintas halaman diuji dengan referensi |
-| Sebagian | T15 | Bangun tampilan teks PDF dan perpindahan ke sumber | Engineer | T13, T14, T06 | FR-04/06 terpenuhi; tidak ada sorotan palsu ketika mapping gagal |
-| Sebagian | T16 | Bangun adapter/render EPUB lokal dan bridge | Engineer | T04, T12, T14 | FR-05 terpenuhi; konten jarak jauh/skrip buku terblokir; struktur buku tetap terbaca |
-| Sebagian | T17 | Tambahkan navigasi bab/halaman, tema, dan tipografi | Engineer | T15, T16 | Resize/font tidak memindahkan locator; tema tidak merusak keterbacaan |
+| Selesai | T15 | Bangun tampilan teks PDF dan perpindahan ke sumber | Engineer | T13, T14, T06 | FR-04/06 terpenuhi; tidak ada sorotan palsu ketika mapping gagal |
+| Selesai | T16 | Bangun adapter/render EPUB lokal dan bridge | Engineer | T04, T12, T14 | FR-05 terpenuhi; konten jarak jauh/skrip buku terblokir; struktur buku tetap terbaca |
+| Selesai | T17 | Tambahkan navigasi bab/halaman, tema, dan tipografi | Engineer | T15, T16 | Resize/font tidak memindahkan locator; tema tidak merusak keterbacaan |
 
-**Kemajuan M2 per 6 Oktober 2026:** T13 dan T14 selesai pada corpus utama. `ReadingDocument`, `TextSegment`, dan locator PDF/EPUB sudah berbagi kontrak; PDF memakai cache teks atomik dengan versi sumber serta extractor, sedangkan cache arsip EPUB tetap memakai versi sumber. PDF asli, zoom, outline, status teks/campuran/tanpa teks, dan pemetaan kalimat ke halaman diuji. Hasil ekstraksi halaman pertama dan batch 16 halaman berikutnya muncul di tampilan teks tanpa menunggu seluruh buku. Tampilan teks PDF kini dapat diseleksi untuk salin, memulai bacaan per kalimat, dan membuka lokasi di PDF; sorotan sumber hanya muncul bila teks hasil pemetaan cocok. Audio berhenti sebelum melintasi halaman tanpa teks dan menampilkan tindakan lewati. EPUB memulihkan posisi kalimat ketika bab yang sama dirender ulang; tautan internal, daftar isi, serta perubahan font telah diperiksa pada build QA. **Gate M2 belum lulus:** TTS PDF masih menunggu hasil seluruh halaman, cache pemetaan EPUB per bab belum persisten, dan ketahanan locator dalam bab setelah resize/font/spacing belum diuji pada corpus panjang. Bukti dan batas rinci ada di [validasi M2](Docs/M2-validation.md).
+**Gate M2 per 6 Oktober 2026: lulus untuk dukungan utama PDF teks satu kolom dan EPUB reflowable.** Teks PDF dan antrean TTS dimulai dari batch yang sudah siap; halaman tanpa teks menghentikan transisi otomatis, termasuk di ujung dokumen. Cache pemetaan EPUB per bab sekarang persisten dengan versi sumber/extractor dan digest isi. QA EPUB 120 paragraf menunjukkan locator dalam bab tetap terlihat setelah perubahan font, spasi, resize, dan reopen. Enam task M2 selesai; variasi penerbit, beban besar, dan audit rilis tetap di M4. Bukti dan batas rinci ada di [validasi M2](Docs/M2-validation.md).
 
 ### Milestone 3 — pengalaman mendengarkan
 
@@ -450,6 +450,8 @@ Daftar ini memuat **35 task MVP dan 11 task backlog**. Status **Sebagian** berar
 | Sebagian | T23 | Simpan/pulihkan posisi audio dan visual | Engineer | T08, T17, T18, T35 | FR-13 lulus pada relaunch/crash, rename file, dan perubahan tampilan; sumber berubah tidak menerima locator lama tanpa validasi |
 | Sebagian | T24 | Implementasikan bookmark dan navigasinya | Engineer | T17, T23 | FR-14 lulus pada dua format dan setelah reopen |
 | Sebagian | T25 | Tangani lifecycle, audio terputus, dan sumber berubah/hilang | Engineer | T20, T23, T34, T35 | FR-18/21 lulus; volume terlepas atau isi berubah saat play menyebabkan pause dan pemulihan yang jelas |
+
+**M3 dimulai pada build 0.5.0 (14).** Menu suara kini menyediakan bahasa per buku, daftar suara sistem sesuai bahasa, dan contoh suara; pilihan dipulihkan ketika buku dibuka lagi. Suara tersimpan yang hilang menghasilkan pesan tanpa fallback bahasa diam-diam. Antrean TTS bertahap memakai session token dan hanya mengirim satu ujaran pada satu waktu. T18/T19 tetap **Sebagian** sampai skenario audio panjang, pergantian cepat, perangkat tanpa suara, dan preview audio langsung diperiksa. Detail ada di [validasi M3](Docs/M3-validation.md).
 
 ### Milestone 4 — verifikasi dan beta
 

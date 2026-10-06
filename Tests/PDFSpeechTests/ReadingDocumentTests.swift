@@ -94,6 +94,65 @@ final class ReadingDocumentTests: XCTestCase {
         XCTAssertEqual(document.sections[0].segmentCount, 3)
     }
 
+    func testEPUBChapterCacheRestoresCurrentCFIAndRejectsChangedContent() throws {
+        let book = try book(fixtureFolder.appendingPathComponent("epub-01.epub"), format: .epub)
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let paragraphs = ["Satu. Dua.", "Tiga."]
+        let first = EPUBReadingAdapter.load(book: book, chapter: 1, paragraphs: paragraphs,
+                                            cfi: "old", cacheDirectory: folder)
+        let cache = try EPUBReadingAdapter.cacheURL(for: book, chapter: 1, cacheDirectory: folder)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cache.path))
+        let restored = EPUBReadingAdapter.load(book: book, chapter: 1, paragraphs: paragraphs,
+                                               cfi: "new", cacheDirectory: folder)
+        XCTAssertEqual(restored.segments.map(\.text), first.segments.map(\.text))
+        XCTAssertEqual(restored.segments.first?.locator,
+                       .epub(chapter: 1, paragraph: 0, offset: 0, cfi: "new"))
+        let changed = EPUBReadingAdapter.load(book: book, chapter: 1,
+                                              paragraphs: ["Ganti."], cfi: "changed",
+                                              cacheDirectory: folder)
+        XCTAssertEqual(changed.segments.map(\.text), ["Ganti."])
+        try Data("corrupt".utf8).write(to: cache)
+        let repaired = EPUBReadingAdapter.load(book: book, chapter: 1,
+                                               paragraphs: paragraphs, cfi: "again",
+                                               cacheDirectory: folder)
+        XCTAssertEqual(repaired.segments.map(\.text), first.segments.map(\.text))
+    }
+
+    @MainActor func testStreamingSpeechDoesNotFinishUntilQueueClosesOrGapIsAcknowledged() {
+        let player = SpeechPlayer()
+        let segment = SpokenSegment(text: "Satu.", page: 0, range: nil, paragraph: nil)
+        var finishes = 0
+        player.onFinish = { finishes += 1 }
+        player.setSegments([segment], isComplete: false)
+        player.advanceAfterUtterance()
+        XCTAssertTrue(player.waitingForSegments)
+        XCTAssertEqual(finishes, 0)
+        player.canFinishAutomatically = { _ in false }
+        player.appendSegments([], isComplete: true)
+        XCTAssertFalse(player.waitingForSegments)
+        XCTAssertEqual(finishes, 0)
+        player.finishAfterAcknowledgingGap()
+        XCTAssertEqual(finishes, 1)
+    }
+
+    @MainActor func testStreamingQueueKeepsCurrentSentenceWhenNextBatchCrossesScanPage() {
+        let player = SpeechPlayer()
+        player.voiceIdentifier = "missing-voice-identifier"
+        let first = SpokenSegment(text: "Satu.", page: 0, range: nil, paragraph: nil)
+        let next = SpokenSegment(text: "Dua.", page: 2, range: nil, paragraph: nil)
+        var finishes = 0
+        player.onFinish = { finishes += 1 }
+        player.canAdvanceAutomatically = { _, _ in false }
+        player.setSegments([first], isComplete: false)
+        player.advanceAfterUtterance()
+        player.appendSegments([next], isComplete: true)
+        XCTAssertEqual(player.currentIndex, 0)
+        XCTAssertFalse(player.waitingForSegments)
+        XCTAssertEqual(player.segments.count, 2)
+        XCTAssertEqual(finishes, 0)
+    }
+
     @MainActor func testEPUBRerenderKeepsSentencePositionWhenAppearanceChanges() throws {
         let url = fixtureFolder.appendingPathComponent("epub-01.epub")
         let book = try book(url, format: .epub)

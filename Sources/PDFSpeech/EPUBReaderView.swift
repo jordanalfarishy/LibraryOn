@@ -65,10 +65,9 @@ struct EPUBAppearance: Equatable {
                 (incoming == chapter ? player.currentIndex : 0)
             firstChapter = false
             chapter = incoming
-            let readingDocument = ReadingDocument.epub(
-                chapter: incoming, paragraphs: paragraphs,
-                cfi: payload["cfi"] as? String ?? currentCFI,
-                sourceVersion: EPUBArchive.sourceVersion(for: book))
+            let readingDocument = EPUBReadingAdapter.load(
+                book: book, chapter: incoming, paragraphs: paragraphs,
+                cfi: payload["cfi"] as? String ?? currentCFI)
             let segments = readingDocument.spokenSegments
             originalSegments = segments
             currentParagraphs = paragraphs
@@ -419,7 +418,14 @@ struct EPUBReaderView: View {
                            leading: chapterControls)
         }
         .task { await prepare() }
-        .onAppear { bookmarks = library.progressStore.bookmarks(for: book.id) }
+        .onAppear {
+            bookmarks = library.progressStore.bookmarks(for: book.id)
+            let preference = SpeechPreferences.load(for: book.id)
+            session.player.preferredLanguage = preference.language
+            session.player.voiceIdentifier = preference.voiceIdentifier
+        }
+        .onChange(of: session.player.preferredLanguage) { _, _ in saveSpeechPreference() }
+        .onChange(of: session.player.voiceIdentifier) { _, _ in saveSpeechPreference() }
         .onDisappear { session.player.stop() }
     }
 
@@ -469,5 +475,11 @@ struct EPUBReaderView: View {
         library.progressStore.addBookmark(book.id, title: title,
                                           epubCFI: session.currentCFI)
         bookmarks = library.progressStore.bookmarks(for: book.id)
+    }
+
+    private func saveSpeechPreference() {
+        SpeechPreferences.save(SpeechPreference(language: session.player.preferredLanguage,
+                                                voiceIdentifier: session.player.voiceIdentifier),
+                               for: book.id)
     }
 }

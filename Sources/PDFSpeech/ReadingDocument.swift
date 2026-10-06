@@ -70,6 +70,73 @@ struct ReadingDocument: Codable, Sendable {
                                                          firstSegment: 0, segmentCount: segments.count)],
                                segments: segments)
     }
+
+    func withEPUBCFI(_ cfi: String) -> ReadingDocument {
+        ReadingDocument(format: format, sourceVersion: sourceVersion,
+                        extractorVersion: extractorVersion, sections: sections,
+                        segments: segments.map { segment in
+            guard case .epub(let chapter, let paragraph, let offset, _) = segment.locator else {
+                return segment
+            }
+            return TextSegment(text: segment.text,
+                               locator: .epub(chapter: chapter, paragraph: paragraph,
+                                              offset: offset, cfi: cfi),
+                               sourceLength: segment.sourceLength)
+        })
+    }
+}
+
+enum EPUBReadingAdapter {
+    private struct CachedChapter: Codable {
+        let paragraphDigest: String
+        let document: ReadingDocument
+    }
+
+    static func load(book: BookFile, chapter: Int, paragraphs: [String], cfi: String,
+                     cacheDirectory: URL? = nil) -> ReadingDocument {
+        let version = EPUBArchive.sourceVersion(for: book)
+        let digest = SHA256.hash(data: (try? JSONEncoder().encode(paragraphs)) ?? Data())
+            .map { String(format: "%02x", $0) }.joined()
+        if let url = try? cacheURL(for: book, chapter: chapter, cacheDirectory: cacheDirectory),
+           let data = try? Data(contentsOf: url), data.count <= 8_000_000,
+           let cached = try? JSONDecoder().decode(CachedChapter.self, from: data),
+           cached.paragraphDigest == digest,
+           cached.document.format == .epub,
+           cached.document.sourceVersion == version,
+           cached.document.extractorVersion == ReadingDocument.extractorVersion,
+           cached.document.sections.count == 1,
+           cached.document.sections[0].index == chapter,
+           cached.document.sections[0].segmentCount == cached.document.segments.count,
+           cached.document.segments.allSatisfy({ segment in
+               guard case .epub(let section, let paragraph, let offset, _) = segment.locator,
+                     section == chapter, paragraphs.indices.contains(paragraph),
+                     offset >= 0, segment.sourceLength > 0 else { return false }
+               return offset + segment.sourceLength <= (paragraphs[paragraph] as NSString).length
+           }) {
+            return cached.document.withEPUBCFI(cfi)
+        }
+        let document = ReadingDocument.epub(chapter: chapter, paragraphs: paragraphs,
+                                            cfi: cfi, sourceVersion: version)
+        if let url = try? cacheURL(for: book, chapter: chapter, cacheDirectory: cacheDirectory),
+           let data = try? JSONEncoder().encode(CachedChapter(paragraphDigest: digest,
+                                                               document: document)),
+           data.count <= 8_000_000 {
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                     withIntermediateDirectories: true)
+            try? data.write(to: url, options: .atomic)
+        }
+        return document
+    }
+
+    static func cacheURL(for book: BookFile, chapter: Int,
+                         cacheDirectory: URL? = nil) throws -> URL {
+        let root = try cacheDirectory ?? FileManager.default.url(for: .cachesDirectory,
+            in: .userDomainMask, appropriateFor: nil, create: true)
+            .appendingPathComponent("PDFSpeech/ReadingDocuments/EPUB", isDirectory: true)
+        let digest = SHA256.hash(data: Data(book.id.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        return root.appendingPathComponent("\(digest)-\(chapter).json")
+    }
 }
 
 enum PDFReadingAdapter {

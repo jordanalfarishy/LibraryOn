@@ -113,10 +113,30 @@ struct PlayerControls<Leading: View>: View {
             .frame(width: 190)
             .help("Geser ke kiri untuk lebih lambat, ke kanan untuk lebih cepat")
             Menu {
-                ForEach(player.voices, id: \.identifier) { voice in
-                    Button("\(voice.name) · \(voice.language)") {
-                        player.changeVoice(voice.identifier)
+                Menu("Bahasa Buku") {
+                    Button { player.changeLanguage("id-ID") } label: {
+                        Label("Indonesia", systemImage: player.preferredLanguage == "id-ID"
+                              ? "checkmark" : "globe")
                     }
+                    Button { player.changeLanguage("en-US") } label: {
+                        Label("English (US)", systemImage: player.preferredLanguage == "en-US"
+                              ? "checkmark" : "globe")
+                    }
+                }
+                Divider()
+                let available = player.voices.filter { $0.language == player.preferredLanguage }
+                if available.isEmpty {
+                    Text("Belum ada suara untuk bahasa ini")
+                }
+                ForEach(available, id: \.identifier) { voice in
+                    Button { player.changeVoice(voice.identifier) } label: {
+                        Label(voice.name, systemImage: player.voiceIdentifier == voice.identifier
+                              ? "checkmark" : "waveform")
+                    }
+                }
+                Divider()
+                Button("Dengarkan Contoh", systemImage: "ear.badge.waveform") {
+                    player.previewVoice()
                 }
             } label: {
                 Label("Suara", systemImage: "waveform")
@@ -328,6 +348,7 @@ struct PDFReaderView: View {
     @State private var document: PDFDocument?
     @State private var readingDocument: ReadingDocument?
     @State private var preparingText = true
+    @State private var pendingRestoreIndex: Int?
     @State private var extractionSession = UUID()
     @State private var preparationError: String?
     @State private var previewSegment: SpokenSegment?
@@ -464,6 +485,9 @@ struct PDFReaderView: View {
                         if player.currentIndex + 1 < player.segments.count,
                            player.segments[player.currentIndex].page < pendingUnreadablePage {
                             player.next()
+                        } else if !preparingText,
+                                  player.segments.last?.page ?? -1 < pendingUnreadablePage {
+                            player.finishAfterAcknowledgingGap()
                         } else {
                             player.play()
                         }
@@ -477,7 +501,14 @@ struct PDFReaderView: View {
             PlayerControls(player: player, onPlay: playFromSelection,
                            leading: pageControls)
         }
-        .onAppear(perform: load)
+        .onAppear {
+            load()
+            let preference = SpeechPreferences.load(for: book.id)
+            player.preferredLanguage = preference.language
+            player.voiceIdentifier = preference.voiceIdentifier
+        }
+        .onChange(of: player.preferredLanguage) { _, _ in saveSpeechPreference() }
+        .onChange(of: player.voiceIdentifier) { _, _ in saveSpeechPreference() }
         .task { await prepareText() }
         .onChange(of: pageIndex) { _, newPage in
             if document != nil { library.progressStore.savePDFView(book.id, page: newPage) }
@@ -551,10 +582,11 @@ struct PDFReaderView: View {
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .textSelection(.enabled)
                                         Button("Baca") {
-                                            player.setSegments(readingDocument.spokenSegments, startAt: index)
+                                            pendingRestoreIndex = nil
+                                            player.setSegments(readingDocument.spokenSegments, startAt: index,
+                                                               isComplete: !preparingText)
                                             player.play()
                                         }
-                                        .disabled(preparingText)
                                         .help("Baca mulai kalimat ini")
                                         Button("PDF") {
                                             previewSegment = segment
@@ -602,13 +634,35 @@ struct PDFReaderView: View {
     @MainActor private func prepareText() async {
         let session = UUID()
         extractionSession = session
+        pendingRestoreIndex = library.progressStore.value(for: book.id)?.sentenceIndex ?? 0
+        player.onSegmentChange = { [store = library.progressStore, id = book.id] index, segment in
+            store.savePDFAudio(id, sentence: index)
+            pageIndex = segment.page
+            previewSegment = nil
+        }
+        player.onFinish = { [store = library.progressStore, id = book.id] in
+            store.markFinished(id)
+        }
+        player.canAdvanceAutomatically = { current, next in
+            guard let missing = readingDocument?.unreadablePage(after: current.page,
+                                                                 before: next.page) else { return true }
+            pendingUnreadablePage = missing
+            return false
+        }
+        player.canFinishAutomatically = { last in
+            guard let missing = readingDocument?.sections.first(where: {
+                $0.status == .needsOCR && $0.index > last.page
+            }) else { return true }
+            pendingUnreadablePage = missing.index
+            return false
+        }
         do {
             let worker = Task.detached(priority: .userInitiated) {
                 try PDFReadingAdapter.load(book) { partial in
                     Task { @MainActor in
                         guard extractionSession == session,
                               partial.sections.count > (readingDocument?.sections.count ?? 0) else { return }
-                        readingDocument = partial
+                        applyExtractedDocument(partial, isComplete: false)
                     }
                 }
             }
@@ -618,18 +672,10 @@ struct PDFReaderView: View {
                 worker.cancel()
             }
             guard !Task.isCancelled, extractionSession == session else { return }
-            readingDocument = result
+            applyExtractedDocument(result, isComplete: true)
             preparingText = false
-            player.setSegments(result.spokenSegments,
-                               startAt: library.progressStore.value(for: book.id)?.sentenceIndex ?? 0)
             if result.segments.isEmpty {
                 player.error = "PDF ini tidak memiliki teks yang dapat dibaca. Dokumen scan memerlukan OCR."
-            }
-            player.canAdvanceAutomatically = { current, next in
-                guard let missing = result.unreadablePage(after: current.page,
-                                                          before: next.page) else { return true }
-                pendingUnreadablePage = missing
-                return false
             }
         } catch is CancellationError {
             return
@@ -638,13 +684,19 @@ struct PDFReaderView: View {
             preparationError = "Teks PDF gagal disiapkan: \(error.localizedDescription)"
             return
         }
-        player.onSegmentChange = { [store = library.progressStore, id = book.id] index, segment in
-            store.savePDFAudio(id, sentence: index)
-            pageIndex = segment.page
-            previewSegment = nil
-        }
-        player.onFinish = { [store = library.progressStore, id = book.id] in
-            store.markFinished(id)
+    }
+
+    private func applyExtractedDocument(_ updated: ReadingDocument, isComplete: Bool) {
+        guard updated.sections.count >= (readingDocument?.sections.count ?? 0) else { return }
+        readingDocument = updated
+        let available = updated.spokenSegments
+        if let restore = pendingRestoreIndex {
+            guard available.count > restore || isComplete else { return }
+            pendingRestoreIndex = nil
+            player.setSegments(available, startAt: restore, isComplete: isComplete)
+        } else if player.segments.count <= available.count {
+            player.appendSegments(Array(available.dropFirst(player.segments.count)),
+                                  isComplete: isComplete)
         }
     }
 
@@ -658,6 +710,12 @@ struct PDFReaderView: View {
             "Halaman \(pageIndex + 1) · \(excerpt)"
         library.progressStore.addBookmark(book.id, title: title, pdfPage: pageIndex)
         bookmarks = library.progressStore.bookmarks(for: book.id)
+    }
+
+    private func saveSpeechPreference() {
+        SpeechPreferences.save(SpeechPreference(language: player.preferredLanguage,
+                                                voiceIdentifier: player.voiceIdentifier),
+                               for: book.id)
     }
 
     private func collectOutline(from document: PDFDocument) -> [PDFOutlineEntry] {
@@ -703,7 +761,9 @@ struct PDFReaderView: View {
             player.error = "Tidak ada teks yang dapat dibaca setelah pilihan ini."
             return
         }
-        player.setSegments(start.segments, startAt: start.index)
+        pendingRestoreIndex = nil
+        player.setSegments(start.segments, startAt: start.index,
+                           isComplete: !preparingText)
         player.play()
     }
 }

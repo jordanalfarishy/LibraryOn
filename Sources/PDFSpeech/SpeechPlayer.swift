@@ -152,12 +152,17 @@ enum TextSegments {
     var isPaused = false
     var rate: Float = AVSpeechUtteranceDefaultSpeechRate
     var voiceIdentifier: String = ""
+    var preferredLanguage = "id-ID"
     var error: String?
     var onSegmentChange: ((Int, SpokenSegment) -> Void)?
     var onFinish: (() -> Void)?
     var canAdvanceAutomatically: ((SpokenSegment, SpokenSegment) -> Bool)?
+    var canFinishAutomatically: ((SpokenSegment) -> Bool)?
+    private(set) var waitingForSegments = false
+    private(set) var queueComplete = true
 
     @ObservationIgnored private let synthesizer = AVSpeechSynthesizer()
+    @ObservationIgnored private let previewSynthesizer = AVSpeechSynthesizer()
     @ObservationIgnored private var session = UUID()
     @ObservationIgnored private var utteranceSessions: [ObjectIdentifier: UUID] = [:]
 
@@ -172,13 +177,32 @@ enum TextSegments {
         }
     }
 
-    func setSegments(_ newSegments: [SpokenSegment], startAt index: Int = 0) {
+    func setSegments(_ newSegments: [SpokenSegment], startAt index: Int = 0,
+                     isComplete: Bool = true) {
         stop()
         segments = newSegments
         currentIndex = min(max(0, index), max(0, newSegments.count - 1))
+        queueComplete = isComplete
+    }
+
+    /// Add only the newly extracted tail; the current utterance and a selected first sentence stay intact.
+    func appendSegments(_ newSegments: [SpokenSegment], isComplete: Bool) {
+        segments.append(contentsOf: newSegments)
+        queueComplete = isComplete
+        if waitingForSegments {
+            if currentIndex + 1 < segments.count {
+                waitingForSegments = false
+                advanceAfterUtterance()
+            } else if isComplete {
+                waitingForSegments = false
+                finishAfterUtterance()
+            }
+        }
     }
 
     func play() {
+        previewSynthesizer.stopSpeaking(at: .immediate)
+        if waitingForSegments { return }
         guard !segments.isEmpty else {
             error = "Bagian ini tidak memiliki teks yang dapat dibacakan."
             return
@@ -202,9 +226,11 @@ enum TextSegments {
     func stop() {
         session = UUID()
         synthesizer.stopSpeaking(at: .immediate)
+        previewSynthesizer.stopSpeaking(at: .immediate)
         utteranceSessions.removeAll()
         isPlaying = false
         isPaused = false
+        waitingForSegments = false
     }
 
     func jump(to index: Int) {
@@ -217,6 +243,12 @@ enum TextSegments {
     func previous() { jump(to: max(0, currentIndex - 1)) }
     func next() { jump(to: min(segments.count - 1, currentIndex + 1)) }
 
+    func finishAfterAcknowledgingGap() {
+        guard queueComplete, !waitingForSegments, !isPlaying,
+              segments.indices.contains(currentIndex) else { return }
+        onFinish?()
+    }
+
     func changeRate(_ value: Float) {
         rate = value
         applyRateChange()
@@ -228,8 +260,36 @@ enum TextSegments {
     }
 
     func changeVoice(_ identifier: String) {
+        previewSynthesizer.stopSpeaking(at: .immediate)
         voiceIdentifier = identifier
         if isPlaying || isPaused { jump(to: currentIndex) }
+    }
+
+    func changeLanguage(_ language: String) {
+        guard ["id-ID", "en-US"].contains(language) else { return }
+        previewSynthesizer.stopSpeaking(at: .immediate)
+        preferredLanguage = language
+        voiceIdentifier = ""
+        if isPlaying || isPaused { jump(to: currentIndex) }
+    }
+
+    func previewVoice() {
+        stop()
+        let voice = voiceIdentifier.isEmpty
+            ? AVSpeechSynthesisVoice(language: preferredLanguage)
+            : AVSpeechSynthesisVoice(identifier: voiceIdentifier)
+        guard let voice else {
+            error = "Suara untuk bahasa ini belum tersedia. Pilih suara yang terpasang."
+            return
+        }
+        let sample = preferredLanguage == "en-US"
+            ? "This is a sample of the selected voice."
+            : "Ini contoh suara untuk membaca buku."
+        let utterance = AVSpeechUtterance(string: sample)
+        utterance.voice = voice
+        utterance.rate = rate
+        error = nil
+        previewSynthesizer.speak(utterance)
     }
 
     private func speakCurrent() {
@@ -237,7 +297,7 @@ enum TextSegments {
         let segment = segments[currentIndex]
         let voice: AVSpeechSynthesisVoice?
         if voiceIdentifier.isEmpty {
-            voice = AVSpeechSynthesisVoice(language: "id-ID") ?? AVSpeechSynthesisVoice(language: "en-US")
+            voice = AVSpeechSynthesisVoice(language: preferredLanguage)
         } else {
             voice = AVSpeechSynthesisVoice(identifier: voiceIdentifier)
             if voice == nil {
@@ -245,6 +305,11 @@ enum TextSegments {
                 isPlaying = false
                 return
             }
+        }
+        if voice == nil {
+            error = "Suara untuk bahasa ini belum tersedia. Pilih suara yang terpasang."
+            isPlaying = false
+            return
         }
         let utterance = AVSpeechUtterance(string: segment.text)
         utterance.voice = voice
@@ -263,22 +328,37 @@ enum TextSegments {
             guard let self,
                   self.utteranceSessions.removeValue(forKey: ObjectIdentifier(utterance)) == self.session
             else { return }
-            if self.currentIndex + 1 < self.segments.count {
-                let current = self.segments[self.currentIndex]
-                let next = self.segments[self.currentIndex + 1]
-                if self.canAdvanceAutomatically?(current, next) == false {
-                    self.isPlaying = false
-                    self.isPaused = false
-                    return
-                }
-                self.currentIndex += 1
-                self.speakCurrent()
-            } else {
-                self.isPlaying = false
-                self.isPaused = false
-                self.onFinish?()
-            }
+            self.advanceAfterUtterance()
         }
+    }
+
+    func advanceAfterUtterance() {
+        guard segments.indices.contains(currentIndex) else { return }
+        if currentIndex + 1 < segments.count {
+            let current = segments[currentIndex]
+            let next = segments[currentIndex + 1]
+            if canAdvanceAutomatically?(current, next) == false {
+                isPlaying = false
+                isPaused = false
+                return
+            }
+            currentIndex += 1
+            speakCurrent()
+        } else if queueComplete {
+            finishAfterUtterance()
+        } else {
+            isPlaying = false
+            isPaused = false
+            waitingForSegments = true
+        }
+    }
+
+    private func finishAfterUtterance() {
+        isPlaying = false
+        isPaused = false
+        if let last = segments[safe: currentIndex],
+           canFinishAutomatically?(last) == false { return }
+        onFinish?()
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,

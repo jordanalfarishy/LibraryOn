@@ -87,9 +87,16 @@
       const sectionIndex = section?.index;
       applyAppearance(doc);
       const readableBlocks = 'h1,h2,h3,h4,h5,h6,p,li,blockquote,pre';
-      blocks = Array.from(doc.body.querySelectorAll(readableBlocks))
-        .filter(el => !el.closest('nav,script,style') &&
-                      !el.querySelector(readableBlocks) && el.textContent.trim());
+      blocks = [];
+      for (const el of doc.body.querySelectorAll(readableBlocks)) {
+        if (el.closest('nav,script,style') || !el.textContent.trim() ||
+            blocks.some(parent => parent.contains(el))) continue;
+        const nested = el.querySelector(readableBlocks);
+        const ownText = Array.from(el.childNodes).some(node =>
+          node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+        // Keep a parent with its own text as one block so list introductions are not lost.
+        if (!nested || ownText) blocks.push(el);
+      }
       if (!blocks.length && doc.body.textContent.trim()) blocks = [doc.body];
       blocks.forEach((el, index) => el.setAttribute('data-pdf-speech-index', index));
       const style = doc.createElement('style');
