@@ -304,14 +304,34 @@ struct LibraryView: View {
         .searchable(text: $library.search, prompt: "Cari judul atau nama file")
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    if let book = library.visibleBooks.first(where: { $0.id == library.selectedBookID }) {
+                        library.open(book)
+                    }
+                } label: {
+                    Image(systemName: "book")
+                }
+                .disabled(!library.visibleBooks.contains { $0.id == library.selectedBookID })
+                .keyboardShortcut(.return, modifiers: [])
+                .help("Buka buku terpilih (↩)")
                 if !library.search.isEmpty {
                     Toggle("Seluruh pustaka", isOn: $library.searchAllFolders)
                         .toggleStyle(.checkbox)
                         .help("Cari di semua folder pustaka")
                 }
                 Menu {
-                    Button("Nama buku") { library.sortByRecent = false }
-                    Button("Terakhir dibaca") { library.sortByRecent = true }
+                    Button("Nama buku") {
+                        library.sortByRecent = false
+                        library.sortByModified = false
+                    }
+                    Button("Terakhir dibaca") {
+                        library.sortByRecent = true
+                        library.sortByModified = false
+                    }
+                    Button("Terakhir diubah") {
+                        library.sortByRecent = false
+                        library.sortByModified = true
+                    }
                 } label: { Image(systemName: "arrow.up.arrow.down") }
                 .help("Urutkan buku")
                 Button {
@@ -427,10 +447,14 @@ struct LibraryView: View {
 
 private struct BookGridCard: View {
     @Environment(LibraryModel.self) private var library
+    @FocusState private var isFocused: Bool
     let book: BookFile
 
     var body: some View {
-        Button { library.open(book) } label: {
+        Button {
+            library.selectedBookID = book.id
+            isFocused = true
+        } label: {
             VStack(alignment: .leading, spacing: 8) {
                 BookCoverImage(book: book)
                     .aspectRatio(0.72, contentMode: .fit)
@@ -447,16 +471,30 @@ private struct BookGridCard: View {
             }
         }
         .buttonStyle(.plain)
+        .focused($isFocused)
+        .padding(6)
+        .background(library.selectedBookID == book.id ? AppTheme.accent.opacity(0.15) : .clear,
+                    in: RoundedRectangle(cornerRadius: 9))
+        .simultaneousGesture(TapGesture(count: 2).onEnded { library.open(book) })
+        .onKeyPress(.return) {
+            library.open(book)
+            return .handled
+        }
+        .contextMenu { Button("Buka Buku") { library.open(book) } }
         .help(book.relativePath)
     }
 }
 
 private struct BookListRow: View {
     @Environment(LibraryModel.self) private var library
+    @FocusState private var isFocused: Bool
     let book: BookFile
 
     var body: some View {
-        Button { library.open(book) } label: {
+        Button {
+            library.selectedBookID = book.id
+            isFocused = true
+        } label: {
             HStack(spacing: 13) {
                 BookCoverImage(book: book)
                     .frame(width: 34, height: 47)
@@ -480,7 +518,15 @@ private struct BookListRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+        .focused($isFocused)
+        .background(library.selectedBookID == book.id ? AppTheme.accent.opacity(0.15) :
+                    Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .simultaneousGesture(TapGesture(count: 2).onEnded { library.open(book) })
+        .onKeyPress(.return) {
+            library.open(book)
+            return .handled
+        }
+        .contextMenu { Button("Buka Buku") { library.open(book) } }
     }
 }
 

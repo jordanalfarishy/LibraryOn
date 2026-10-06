@@ -2,12 +2,12 @@
 
 | Atribut | Nilai |
 | --- | --- |
-| Versi | 2.1 — M1 pemindaian bertahap dan drop folder |
+| Versi | 2.2 — gate M1 fondasi pustaka |
 | Tanggal | 6 Oktober 2026 |
 | Nama aplikasi | LibraryOn |
 | Platform | Aplikasi native macOS, minimum macOS 14; Apple Silicon untuk MVP |
 | Fokus | Membaca dan mendengarkan PDF/EPUB dengan text-to-speech; terjemahan manga PDF per halaman pada P1 |
-| Status | Build 0.3.1 (11) tersedia; gate M0 lulus, pekerjaan M1 berjalan |
+| Status | Build 0.4.0 (12) tersedia; gate M0 dan M1 lulus, verifikasi beta tetap berjalan |
 
 ## 1. Ringkasan produk
 
@@ -25,7 +25,7 @@ Status di bawah merujuk pada kode prototipe yang ada, **bukan** tanda bahwa acce
 
 | Area | Status | Yang tersedia saat ini | Batas yang masih ada |
 | --- | --- | --- | --- |
-| Pustaka folder | Sebagian | Beberapa folder akar tersimpan dan dapat dipilih atau ditambahkan lewat drop dari Finder; hasil scan tampil per batch; sidebar subfolder dapat dibuka/ditutup dan dinavigasi dengan panah; breadcrumb, grid/daftar, pencarian nama, urutan nama/terakhir dibaca, pemantauan Finder; pilih ulang lokasi root mempertahankan entri dan ID buku yang filenya sama; volume terlepas dan terpasang kembali memulihkan subfolder pilihan | Indeks belum persisten, belum ada relink file individu, uji UI drop pada build sandbox dan benchmark koleksi besar masih diperlukan |
+| Pustaka folder | Sebagian | Beberapa folder akar dengan akses persisten, indeks lokal berversi, scan bertahap, watcher, relink buku hilang, dan konfirmasi isi berubah; sidebar, breadcrumb, grid/daftar, pencarian nama, urutan nama/terakhir dibaca/terakhir diubah, serta progres per buku; root dan subfolder pulih saat relaunch | Benchmark p95 1.000 buku, drag-and-drop langsung di build sandbox, serta audit keyboard/VoiceOver menyeluruh masih menjadi validasi beta |
 | Sampul dan identitas visual | Ada | Pratinjau halaman pertama PDF/EPUB sebagai sampul; ikon terang/gelap dari `AppIcon` dengan margin Dock; aksen aplikasi mengikuti ikon | Beberapa halaman EPUB yang tidak dapat dirender masih memakai placeholder |
 | PDF Reader | Sebagian | Tampilan asli/teks, halaman atas/bawah, zoom muat halaman/lebar/tinggi dan persentase, outline, seleksi kata untuk mulai TTS | Belum ada OCR untuk TTS umum, penataan dua kolom, atau klasifikasi halaman campuran |
 | EPUB Reader | Sebagian | EPUB 2/3 reflowable tampil pada build sandbox dengan bab, daftar isi, CFI, footnote, font, spasi, dan tema; konten HTTP/HTTPS diblokir; EPUB dengan skrip/interaksi aktif ditolak dengan pesan jelas | Belum ada dukungan fixed-layout/interaktif; uji ragam buku nyata, sesi panjang, dan ketahanan semua locator masih diperlukan |
@@ -36,11 +36,11 @@ Status di bawah merujuk pada kode prototipe yang ada, **bukan** tanda bahwa acce
 | Bar progres per buku | Sebagian | Grid/daftar menampilkan bar posisi untuk setiap file: halaman/total halaman PDF, bab/total bagian EPUB, atau kosong sebelum dibuka | Persentase EPUB masih perkiraan berbasis bab; belum mengukur posisi di dalam bab dan belum menguji migrasi data pada semua instalasi lama |
 | Aksesibilitas dan distribusi | Sebagian | Cmd+O, Enter, panah halaman PDF, label kontrol dasar, build aplikasi lokal bertanda tangan ad-hoc | Audit VoiceOver/keyboard, signing pengembang, notarization, dan uji Mac bersih belum ada |
 
-Build dan tes otomatis saat pembaruan ini: **32 tes lulus** mencakup corpus M0, pemetaan PDF, identitas 1.000 buku, akses root, batch scan dan validasi folder drop, deteksi EPUB aktif, sampul, seleksi teks, posisi/penanda, penghitungan progres, kontrol data, OCR/overlay/cache manga, dan state unduhan bahasa. Sintesis suara Indonesia/Inggris tanpa jaringan menghasilkan frame audio dan callback. EPUB 2/3 serta volume QA terlepas/terpasang diverifikasi pada aplikasi sandbox. Detail dan batas ada di [validasi M0](Docs/M0-validation.md). Hasil ini belum membuktikan alur UI unduhan model yang belum terpasang, kualitas manga nyata, atau target rilis di Bagian 8.
+Build dan tes otomatis saat pembaruan ini: **44 tes lulus** mencakup corpus M0, pemetaan PDF, identitas 1.000 buku, akses root, indeks persisten, batch scan, rekonsiliasi file, izin subfolder, watcher, relink, sampul, seleksi teks, posisi/penanda, progres, kontrol data, OCR/overlay/cache manga, dan state unduhan bahasa. [GitHub Actions run #1](https://github.com/jordanalfarishy/LibraryOn/actions/runs/37418534481) lulus untuk tes, build, signature, dan entitlement pada commit awal; perubahan akhir M1 tetap memerlukan run berikutnya. Sintesis suara Indonesia/Inggris tanpa jaringan menghasilkan frame audio dan callback. EPUB 2/3 serta volume QA terlepas/terpasang diverifikasi pada aplikasi sandbox. Detail ada di [validasi M0](Docs/M0-validation.md) dan [validasi M1](Docs/M1-validation.md). Hasil ini belum membuktikan alur UI unduhan model yang belum terpasang, kualitas manga nyata, atau target rilis di Bagian 8.
 
 **Kemajuan B03 — sebagian:** Pipeline halaman aktif sudah berjalan dari PDFKit ke Vision dan Translation framework. Hasil tampil pada panel dan overlay sementara PDF gambar/layer teks yang dapat dimatikan tanpa menulis ke file sumber; latar overlay telah diperiksa lewat render PDF. Berpindah halaman membatalkan pekerjaan sebelumnya dan cache lokal dibatasi 20 halaman, dapat dipakai setelah proses baru, serta dibedakan menurut versi file, halaman, bahasa, dan pipeline. Respons batch dicocokkan ke dialog melalui ID; kegagalan batch memicu percobaan per dialog, sementara blok yang gagal mempertahankan teks asli. Persiapan model dipindahkan dari panel ke jendela utama; indikator status tetap tampil ketika panel ditutup dan memantau hingga model tersedia, dengan tindakan Coba Lagi. Pasangan Jepang → Indonesia berhasil diuji secara lokal dengan kalimat sintetis pada Mac pengembangan. B03 tetap belum selesai sampai corpus manga nyata, ketepatan overlay pada ragam tata letak, performa, fallback kegagalan per blok, dan perilaku model yang belum terpasang diverifikasi.
 
-**Kemajuan terbaru — T09, T33, T35:** Tombol **Pilih Ulang Folder** mengganti bookmark pada root aktif, bukan mendaftarkan root baru. Pemindaian dimulai ulang pada lokasi baru, sementara ID root dan preferensi penjelajahan tetap sama. Uji otomatis memindahkan folder pada volume yang sama, memilih ulang lokasinya, lalu memverifikasi ID buku, halaman progres, folder terpilih, dan pemulihan setelah model dibuka kembali. Bookmark stale diuji melalui resolver tiruan. Pada build QA sandbox, volume image HFS+ dilepas dan dipasang ulang saat aplikasi aktif; pesan tidak tersedia muncul, lalu buku dan subfolder pilihan pulih. T33 selesai sebagai prototype; T09/T35 tetap sebagian karena indeks persisten, relink file individu, dan rekonsiliasi koleksi besar belum selesai.
+**Kemajuan terbaru — T09, T33, T35:** **Pilih Ulang Folder** mengganti bookmark root aktif tanpa membuat root baru. Indeks disimpan atomik dan dipulihkan saat root tidak tersedia. Uji memverifikasi folder pindah, ID/progres yang bertahan, bookmark stale melalui resolver tiruan, rekonsiliasi add/rename/move/copy/delete, file tidak terbaca, file hilang, isi berubah, dan relink eksplisit yang mempertahankan penanda. QA sandbox memverifikasi volume HFS+ terlepas/terpasang dan pemulihan subfolder. Corpus besar masih menunggu benchmark pada T28.
 
 ## 2. Masalah, pengguna, dan hasil yang dituju
 
@@ -252,7 +252,7 @@ Uji kegunaan beta: minimal 4 dari 5 pengguna dapat pilih folder → temukan buku
 
 ## 9. Tech stack yang direkomendasikan
 
-Prototipe saat ini memakai Swift Package Manager/SwiftUI, PDFKit, WKWebView dengan epub.js 0.3.93 lokal, ZIPFoundation 0.9.20, AVSpeechSynthesizer, NLTokenizer, FSEvents, SwiftData untuk progres dan penanda, serta UserDefaults untuk daftar folder dan preferensi Library. Tes yang sudah ada memakai XCTest. Workflow CI macOS telah dibuat, tetapi belum dijalankan di layanan GitHub. Baris tabel yang menyebut indeks persisten, NLLanguageRecognizer, Swift Testing, OSLog/Instruments, atau DMG bertanda tangan pengembang adalah **rencana**, belum implementasi terverifikasi.
+Prototipe saat ini memakai Swift Package Manager/SwiftUI, PDFKit, WKWebView dengan epub.js 0.3.93 lokal, ZIPFoundation 0.9.20, AVSpeechSynthesizer, NLTokenizer, FSEvents, SwiftData untuk progres dan penanda, UserDefaults untuk daftar root serta state penjelajah, dan indeks JSON berversi di Application Support. Tes memakai XCTest. Workflow GitHub Actions macOS sudah lulus. NLLanguageRecognizer, Swift Testing, OSLog/Instruments, atau DMG bertanda tangan pengembang masih **rencana**, belum implementasi terverifikasi.
 
 ### Stack MVP
 
@@ -268,14 +268,14 @@ Prototipe saat ini memakai Swift Package Manager/SwiftUI, PDFKit, WKWebView deng
 | Arsip EPUB | ZIPFoundation + FileManager | Ekstraksi bertahap ke direktori milik buku dengan pembatasan ukuran dan validasi path |
 | TTS | AVFoundation/AVFAudio: AVSpeechSynthesizer, AVSpeechUtterance, AVSpeechSynthesisVoice | Suara sistem dan kontrol ucapan; gunakan yang tersedia di runtime |
 | Bahasa dan kalimat | NaturalLanguage: NLTokenizer, NLLanguageRecognizer | Segmentasi dan saran bahasa; pengguna tetap dapat override |
-| Metadata persisten | SwiftData, store lokal | Folder akar, indeks file, state penjelajah, bookmark bacaan, preferensi, dan posisi; schema versioning sejak awal |
+| Metadata persisten | SwiftData untuk progres/penanda; UserDefaults untuk root/state penjelajah; JSON berversi di Application Support untuk indeks folder/buku | Pemisahan data bacaan dari indeks yang dapat dipindai ulang; indeks ditulis atomik dan kegagalan tulis tidak menghapus daftar aktif |
 | File/cache | File sumber dibaca di folder pengguna; Application Support untuk data persisten, Caches untuk sampul/ekstraksi | Tidak membuat salinan ebook permanen atau sidecar di folder pengguna; cache berversi dapat dibangun ulang |
 | Preferensi | UserDefaults untuk preferensi sederhana | Tema, sidebar, serta suara default; bukan tempat file atau teks buku |
 | Concurrency | Swift Concurrency, actor untuk scan/rekonsiliasi/cache | Pekerjaan dibatasi dan dapat dibatalkan; UI serta framework yang memerlukan main actor tetap di main actor |
-| Dependency/build | Swift Package Manager; asset JavaScript lokal yang dipin | Simpan Package.resolved, versi/checksum aset web, dan pemberitahuan lisensi. Tidak memuat library dari CDN |
+| Dependency/build | Swift Package Manager dengan ZIPFoundation vendored 0.9.20; epub.js lokal 0.3.93 | Versi dan lisensi dependency disimpan di repo; tidak ada dependency CDN. Karena dependency SwiftPM lokal, tidak ada Package.resolved eksternal |
 | Pengujian | Swift Testing untuk domain; XCTest/XCUITest untuk integrasi dan UI | Corpus dokumen, posisi, antrean audio, lifecycle, dan alur pengguna |
 | Diagnosis/performa | OSLog, signpost, Instruments | Log lokal tanpa isi dokumen; ukur latensi, memory, dan resource leak |
-| CI dan distribusi | GitHub Actions runner macOS dengan SwiftPM; signed/notarized DMG untuk beta | Workflow build/test/verifikasi bundle dibuat; run CI nyata belum tersedia; penandatanganan distribusi memerlukan akun/sertifikat pemilik |
+| CI dan distribusi | GitHub Actions runner macOS dengan SwiftPM; signed/notarized DMG untuk beta | Workflow tes/build/verifikasi bundle lulus pada GitHub; penandatanganan distribusi memerlukan akun/sertifikat pemilik |
 | Backend | Tidak digunakan | Buku, posisi, TTS, OCR, dan terjemahan yang direncanakan diproses di perangkat; tidak ada layanan sinkronisasi aplikasi |
 
 Security-scoped bookmarks dipakai untuk mempertahankan akses folder pilihan pengguna lintas peluncuran. Bookmark akses macOS berbeda dari bookmark halaman bacaan. Pengelolaan start/stop akses dan penyegaran bookmark yang stale termasuk tanggung jawab aplikasi. [Dokumentasi NSURL](https://developer.apple.com/documentation/foundation/nsurl), [entitlement App Sandbox](https://developer.apple.com/library/archive/documentation/Miscellaneous/Reference/EntitlementKeyReference/Chapters/EnablingAppSandbox.html).
@@ -345,7 +345,7 @@ Modul utama: `Library`, `FolderAccess`, `DirectoryIndex`, `Reader`, `DocumentPro
 
 File asli di folder pengguna merupakan sumber kebenaran. ID buku tidak menggunakan path atau hash isi sebagai satu-satunya identitas: rename dapat mengubah path, sedangkan dua salinan identik tetap merupakan dua entri. Gunakan file/volume identity bila andal, locator lokasi, dan fingerprint konten saat diperlukan. Hash seluruh koleksi tidak menjadi syarat untuk menampilkan Library.
 
-Segmen dan sampul disimpan sebagai cache dengan kunci bookID + content version + extractor version. SwiftData menyimpan metadata, bookmark akses folder, state penjelajah, dan locator bacaan. Perubahan isi atau extractor membangun ulang cache lalu mencocokkan posisi melalui locator/cuplikannya. Jika tidak dapat dipulihkan, aplikasi meminta pengguna memilih posisi; jangan diam-diam kembali ke awal. Progres pada sumber yang hilang tetap disimpan sampai pengguna memilih reset data.
+Segmen dan sampul disimpan sebagai cache dengan kunci bookID + content version + extractor version. Saat ini SwiftData menyimpan progres/penanda bacaan, UserDefaults menyimpan bookmark akses root dan state penjelajah, dan JSON di Application Support menyimpan indeks yang dapat dibangun ulang. Saat isi file berubah, prototipe meminta konfirmasi untuk membuka dari awal sambil mempertahankan penanda. Pencocokan locator/cuplikannya yang lebih presisi menjadi pekerjaan T23; posisi lama tidak dipakai diam-diam. Progres pada sumber yang hilang tetap disimpan sampai pengguna memilih reset data.
 
 ### Kontrak posisi dan audio
 
@@ -395,7 +395,7 @@ Keputusan awal yang bisa diterapkan tanpa menunda dokumen: macOS 14+, Apple Sili
 
 ## 12. Daftar task implementasi
 
-Daftar ini memuat **35 task MVP dan 11 task backlog**. Status **Sebagian** berarti implementasi awal sudah ada tetapi *definition of done* belum terpenuhi; **Belum** berarti task belum dimulai secara berarti; **Selesai** hanya dipakai setelah seluruh kriteria dan verifikasinya lulus. Saat ini **26 task MVP Sebagian, 3 Belum, dan 6 Selesai**. Owner berikut adalah peran, bukan penugasan kepada orang tertentu. Dependensi menyatakan task yang harus selesai sebelum output task dapat dinyatakan tuntas. ID lama dipertahankan; T33–T35 adalah tambahan untuk pustaka folder dan ditempatkan pada milestone terkait.
+Daftar ini memuat **35 task MVP dan 11 task backlog**. Status **Sebagian** berarti implementasi awal sudah ada tetapi *definition of done* belum terpenuhi; **Belum** berarti task belum dimulai secara berarti; **Selesai** hanya dipakai setelah seluruh kriteria dan verifikasinya lulus. Saat ini **18 task MVP Sebagian, 3 Belum, dan 14 Selesai**. Owner berikut adalah peran, bukan penugasan kepada orang tertentu. Dependensi menyatakan task yang harus selesai sebelum output task dapat dinyatakan tuntas. ID lama dipertahankan; T33–T35 adalah tambahan untuk pustaka folder dan ditempatkan pada milestone terkait.
 
 ### Milestone 0 — validasi fondasi
 
@@ -408,22 +408,22 @@ Daftar ini memuat **35 task MVP dan 11 task backlog**. Status **Sebagian** berar
 | Selesai | T33 | Prototype akses folder persisten dan identitas file | Engineer + QA | T01 | Pilih root, relaunch, bookmark stale, rename/move, volume terlepas, dan pilih ulang diuji pada build sandbox; batas dukungan tercatat |
 | Selesai | T05 | Putuskan kesiapan stack dan ambang awal | Product + Engineer | T02–T04, T33 | Hasil akses folder, risiko, batas ukuran, dan keputusan lanjut/perbaiki terdokumentasi |
 
-**Gate M0 per 6 Oktober 2026: lulus.** EPUB 2/3, pembatasan konten jarak jauh, penolakan EPUB aktif, suara/PDF, dan volume pustaka terlepas/terpasang telah diperiksa pada build QA sandbox; keputusan T05 adalah **lanjut ke M1**. Batas ukuran yang belum ditegakkan dan pengujian rilis tetap tercatat di [validasi M0](Docs/M0-validation.md). M1 dimulai melalui perbaikan pemulihan volume dan workflow CI; T06–T11/T34–T35 masih sebagian.
+**Gate M0 per 6 Oktober 2026: lulus.** EPUB 2/3, pembatasan konten jarak jauh, penolakan EPUB aktif, suara/PDF, dan volume pustaka terlepas/terpasang telah diperiksa pada build QA sandbox. Batas ukuran yang belum ditegakkan dan pengujian rilis tetap tercatat di [validasi M0](Docs/M0-validation.md). M1 ditutup berdasarkan [validasi M1](Docs/M1-validation.md); benchmark dan audit rilis berada pada M4.
 
 ### Milestone 1 — fondasi aplikasi dan pustaka
 
 | Status | ID | Task | Owner | Dependensi | Definition of done |
 | --- | --- | --- | --- | --- | --- |
-| Sebagian | T06 | Wireframe penjelajah folder, Library, Reader, Player, dan error states | Design + Product | T05 | Pilih folder → telusuri grid/daftar → buka → dengar → kembali/relaunch dapat ditinjau dengan keyboard |
-| Sebagian | T07 | Buat proyek SwiftUI, modul, sandbox, dan CI | Engineer | T05 | Build macOS 14+ berhasil; dependency/asset terkunci; CI menjalankan build dan tes dasar |
-| Sebagian | T08 | Implementasikan schema dan repository lokal | Engineer | T07 | Root, folder nodes, file identity/version, browser state, posisi terpisah, dan bookmark tersedia |
-| Sebagian | T09 | Implementasikan folder picker, akses persisten, dan indeks bertahap | Engineer | T08, T33 | FR-01/02 lulus; folder ganda, scan batal, izin subfolder ditolak, dan penyimpanan indeks gagal tertangani |
-| Sebagian | T10 | Buat pohon folder, breadcrumb, grid/daftar, pencarian, progres buku, dan restore Library | Engineer | T06, T09, T23 | FR-03/22/24 lulus; placeholder tampil saat metadata belum siap; kembali dari Reader mempertahankan konteks dan bar progres |
-| Sebagian | T34 | Implementasikan watcher dan rekonsiliasi folder | Engineer | T09 | FR-20 lulus; add/rename/move/delete serta event terlewat diperiksa ulang tanpa duplikasi/penghapusan keliru |
-| Sebagian | T35 | Implementasikan identitas buku, versi konten, dan relink | Engineer | T08, T09, T34 | Rename lokal mempertahankan ID; copy tetap terpisah; source missing dan content changed dikenali serta progres tersimpan |
-| Sebagian | T11 | Kelola folder terbaru, reset data, dan pembersihan cache | Engineer | T09, T18, T23 | FR-15 lulus; lepas root menghentikan pekerjaan/sesi; sumber tetap utuh dan bersihkan cache mempertahankan progres |
+| Selesai | T06 | Wireframe penjelajah folder, Library, Reader, Player, dan error states | Design + Product | T05 | Pilih folder → telusuri grid/daftar → buka → dengar → kembali/relaunch dapat ditinjau dengan keyboard |
+| Selesai | T07 | Buat proyek SwiftUI, modul, sandbox, dan CI | Engineer | T05 | Build macOS 14+ berhasil; dependency/asset terkunci; CI menjalankan build dan tes dasar |
+| Selesai | T08 | Implementasikan schema dan repository lokal | Engineer | T07 | Root, folder nodes, file identity/version, browser state, posisi terpisah, dan bookmark tersedia |
+| Selesai | T09 | Implementasikan folder picker, akses persisten, dan indeks bertahap | Engineer | T08, T33 | FR-01/02 lulus; folder ganda, scan batal, izin subfolder ditolak, dan penyimpanan indeks gagal tertangani |
+| Selesai | T10 | Buat pohon folder, breadcrumb, grid/daftar, pencarian, progres buku, dan restore Library | Engineer | T06, T08, T09 | FR-03/22/24 lulus; placeholder tampil saat metadata belum siap; kembali dari Reader mempertahankan konteks dan bar progres |
+| Selesai | T34 | Implementasikan watcher dan rekonsiliasi folder | Engineer | T09 | FR-20 lulus; add/rename/move/delete serta event terlewat diperiksa ulang tanpa duplikasi/penghapusan keliru |
+| Selesai | T35 | Implementasikan identitas buku, versi konten, dan relink | Engineer | T08, T09, T34 | Rename lokal mempertahankan ID; copy tetap terpisah; source missing dan content changed dikenali serta progres tersimpan |
+| Selesai | T11 | Kelola folder terbaru, reset data, dan pembersihan cache | Engineer | T08, T09 | FR-15 lulus; lepas root menghentikan pekerjaan/sesi; sumber tetap utuh dan bersihkan cache mempertahankan progres |
 
-Kemajuan M1: aplikasi bernama **LibraryOn** pada jendela, metadata bundle, dan hasil build 0.3.1 (11). Bundle ID `com.joalfa.pdfspeech` serta kunci data lama tetap dipertahankan untuk kontinuitas folder/progres/penanda. Grid/daftar menampilkan bar progres PDF dan estimasi EPUB per buku. Total halaman/bab pada catatan lama dihitung saat kartu tampil; satu store lama berhasil membuka skema baru sambil mempertahankan entri progresnya, sedangkan QA migrasi lintas instalasi masih diperlukan. Folder dapat ditambahkan lewat drop, dan scanner mengirim batch 50 item agar temuan muncul sebelum scan selesai; scan yang dibatalkan tidak menimpa root baru. Tes unit memastikan file biasa ditolak dan folder ganda tidak didaftarkan. Workflow `.github/workflows/macos.yml` menjalankan tes Swift, build aplikasi, dan verifikasi signature/entitlement pada macOS; T07 belum selesai karena belum ada run CI di layanan GitHub. Penanganan volume terlepas menampilkan status root yang tepat dan memulihkan subfolder terpilih setelah volume kembali; indeks persisten, rekonsiliasi perubahan besar, dan uji UI drop di build sandbox tetap terbuka pada T09/T10/T34/T35.
+**Gate M1 per 6 Oktober 2026: lulus untuk fondasi pustaka.** Build **0.4.0 (12)** memakai nama LibraryOn; bundle ID `com.joalfa.pdfspeech` dan kunci data lama dipertahankan untuk kontinuitas. Indeks lokal berversi tampil saat relaunch dan diverifikasi ulang di latar belakang. Scan batch 50 item, watcher, relink, rekonsiliasi file/izin, folder ganda, root offline, dan kegagalan penyimpanan diuji. QA sandbox memverifikasi dua root, navigasi panah, subfolder dan progres yang pulih, klik tunggal memilih buku, klik ganda/Enter membuka Reader, serta Enter dalam pencarian tidak membuka buku. [GitHub Actions](https://github.com/jordanalfarishy/LibraryOn/actions/workflows/macos.yml) menjalankan tes, build, signature, dan entitlement; hasil awal lulus dan bukti lengkap ada di [validasi M1](Docs/M1-validation.md). Pengukuran kinerja 1.000 buku, drag-and-drop UI langsung, migrasi lintas instalasi, dan audit VoiceOver penuh tetap pada M4; gate M1 tidak berarti beta siap rilis.
 
 ### Milestone 2 — mesin dokumen dan reader
 
@@ -493,7 +493,7 @@ Rincian pekerjaan B03 agar status prototipe tidak disamakan dengan fitur siap ri
 
 Corpus M0 yang tersedia berisi 30 file sintetis: 10 PDF teks satu kolom, 10 EPUB reflowable (campuran EPUB 2/3), dan 10 kasus batas/negatif termasuk Unicode, pemenggalan baris, scan/gambar, dua kolom, file rusak, marker DRM, fixed-layout, serta EPUB dengan resource/skrip eksternal. File terkunci dan file sebesar ambang batas belum dibuat. Teks acuan 400 kalimat berbahasa Indonesia; variasi bahasa Inggris masih perlu ditambahkan untuk QA rilis.
 
-Dataset penjelajahan M0 memuat 1.000 entri buku sintetis dalam 100 subfolder, termasuk hierarki dua tingkat, nama Unicode, judul sama pada 100 lokasi, dan duplikat isi. Volume image HFS+ terlepas/terpasang kembali telah diuji pada build sandbox; folder kosong, file non-ebook, symlink/alias, serta direktori yang izinnya berubah masih memerlukan uji lanjutan. Dataset ini untuk menguji fungsi indeks/Library, bukan menggantikan corpus kualitas bacaan atau pengukuran latensi p95.
+Dataset penjelajahan M0 memuat 1.000 entri buku sintetis dalam 100 subfolder, termasuk hierarki dua tingkat, nama Unicode, judul sama pada 100 lokasi, dan duplikat isi. Volume image HFS+ terlepas/terpasang kembali telah diuji pada build sandbox. Direktori yang izinnya dicabut diuji otomatis pada M1 dan tidak menghapus buku/progres yang sudah diindeks; folder kosong, file non-ebook, serta symlink/alias tetap memerlukan uji UI lanjutan. Dataset ini untuk menguji fungsi indeks/Library, bukan menggantikan corpus kualitas bacaan atau pengukuran latensi p95.
 
 QA menyiapkan 20 kalimat acuan per dokumen dukungan utama (400 total), termasuk lokasi dan urutan yang benar. Semua transisi bab dan sampel batas halaman dicatat terpisah. Uji audio nyata melengkapi tes state machine; mock engine tidak cukup untuk menyatakan kualitas suara atau ketepatan callback.
 

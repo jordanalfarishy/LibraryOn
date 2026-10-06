@@ -374,6 +374,27 @@ import XCTest
         XCTAssertNil(removedIndex)
     }
 
+    func testModifiedDateSortIsDistinctFromTitleSort() throws {
+        let suiteName = "libraryon-sort-\(UUID().uuidString)"
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { preferences.removePersistentDomain(forName: suiteName) }
+        let library = LibraryModel(preferences: preferences,
+                                   progressStore: ProgressStore(inMemory: true),
+                                   indexStore: LibraryIndexStore(inMemory: true))
+        let root = FileManager.default.temporaryDirectory
+        library.books = [
+            BookFile(id: "older", relativePath: "A.pdf", folderPath: "",
+                     url: root.appendingPathComponent("A.pdf"), title: "A",
+                     format: .pdf, size: 1, modifiedAt: Date(timeIntervalSince1970: 1)),
+            BookFile(id: "newer", relativePath: "Z.pdf", folderPath: "",
+                     url: root.appendingPathComponent("Z.pdf"), title: "Z",
+                     format: .pdf, size: 1, modifiedAt: Date(timeIntervalSince1970: 2))
+        ]
+        XCTAssertEqual(library.visibleBooks.map(\.id), ["older", "newer"])
+        library.sortByModified = true
+        XCTAssertEqual(library.visibleBooks.map(\.id), ["newer", "older"])
+    }
+
     func testSwitchingRootsReplacesBooksAndRestoresFolder() async throws {
         let base = FileManager.default.temporaryDirectory
             .appendingPathComponent("pdf-speech-roots-\(UUID().uuidString)")

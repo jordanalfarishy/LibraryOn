@@ -166,6 +166,7 @@ struct RootRecord: Codable, Identifiable {
     var lastFolder: String
     var listMode: Bool
     var sortByRecent: Bool
+    var sortByModified: Bool? = nil
     var lastScrollBookID: String? = nil
     var lastSelectedBookID: String? = nil
 }
@@ -186,6 +187,7 @@ struct RootRecord: Codable, Identifiable {
     var searchAllFolders = false
     var listMode = false { didSet { persistCurrentRoot() } }
     var sortByRecent = false { didSet { persistCurrentRoot() } }
+    var sortByModified = false { didSet { persistCurrentRoot() } }
     var isScanning = false
     var scanError: String?
     var indexNotice: String?
@@ -260,6 +262,13 @@ struct RootRecord: Codable, Identifiable {
             return scopeMatch && (term.isEmpty ||
                 book.title.localizedStandardContains(term) ||
                 book.relativePath.localizedStandardContains(term))
+        }
+        if sortByModified {
+            return matches.sorted {
+                $0.modifiedAt == $1.modifiedAt
+                    ? $0.title.localizedStandardCompare($1.title) == .orderedAscending
+                    : $0.modifiedAt > $1.modifiedAt
+            }
         }
         if sortByRecent {
             return matches.sorted {
@@ -390,6 +399,7 @@ struct RootRecord: Codable, Identifiable {
         selectedFolder = record.lastFolder
         listMode = record.listMode
         sortByRecent = record.sortByRecent
+        sortByModified = record.sortByModified ?? false
         scrollAnchor = record.lastScrollBookID
         preferences.set(id.uuidString, forKey: "pdfSpeech.activeRoot")
         do {
@@ -707,6 +717,7 @@ struct RootRecord: Codable, Identifiable {
         roots[index].lastFolder = selectedFolder
         roots[index].listMode = listMode
         roots[index].sortByRecent = sortByRecent
+        roots[index].sortByModified = sortByModified
         roots[index].lastScrollBookID = scrollAnchor
         roots[index].lastSelectedBookID = selectedBookID
         saveRoots()
