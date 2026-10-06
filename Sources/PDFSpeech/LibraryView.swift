@@ -120,7 +120,7 @@ struct LibraryView: View {
     private var libraryNavigation: some View {
         NavigationSplitView {
             VStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 7) {
+                VStack(alignment: .leading, spacing: 5) {
                     HStack {
                         Text("FOLDER PUSTAKA")
                             .font(.caption.weight(.semibold))
@@ -132,13 +132,12 @@ struct LibraryView: View {
                         .buttonStyle(.borderless)
                         .help("Tambah folder pustaka")
                     }
-                    .padding(.horizontal, 7)
+                    .padding(.horizontal, 17)
                     rootList
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
-                .frame(height: min(46 + CGFloat(library.roots.count) * 53, 220))
+                .padding(.top, 10)
+                .padding(.bottom, 6)
+                .frame(height: min(42 + CGFloat(library.roots.count) * 43, 214))
                 Divider()
                 if let active = library.activeRoot {
                     Text("DI DALAM \(active.name.uppercased())")
@@ -146,8 +145,9 @@ struct LibraryView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 19)
-                        .padding(.top, 10)
+                        .padding(.horizontal, 17)
+                        .padding(.top, 12)
+                        .padding(.bottom, 4)
                     folderOutline
                         .id(active.id)
                 }
@@ -166,7 +166,8 @@ struct LibraryView: View {
                     Label("Kelola Pustaka", systemImage: "folder.badge.gearshape")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(12)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
             }
             .frame(minWidth: 220)
             .navigationTitle("Pustaka")
@@ -202,6 +203,7 @@ struct LibraryView: View {
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
     }
 
     private var folderOutline: some View {
@@ -221,6 +223,7 @@ struct LibraryView: View {
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
     }
 
     private var libraryContent: some View {
@@ -367,36 +370,35 @@ struct LibraryView: View {
     private var booksArea: some View {
         @Bindable var library = library
         return ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 18) {
                 if library.selectedFolder.isEmpty && library.search.isEmpty,
                    let recent = library.books
                     .filter({ library.progressStore.value(for: $0.id) != nil })
                     .max(by: { (library.progressStore.value(for: $0.id)?.lastOpened ?? .distantPast) <
                                 (library.progressStore.value(for: $1.id)?.lastOpened ?? .distantPast) }) {
                     Button { library.open(recent) } label: {
-                        HStack(spacing: 14) {
+                        HStack(spacing: 12) {
                             Image(systemName: "play.circle.fill")
-                                .font(.system(size: 36))
+                                .font(.system(size: 28))
                                 .foregroundStyle(AppTheme.accent)
                             VStack(alignment: .leading) {
                                 Text("Lanjutkan membaca").font(.caption).foregroundStyle(.secondary)
                                 Text(recent.title).font(.headline).lineLimit(1)
-                                Text(recent.relativePath).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                 BookProgressBar(book: recent)
-                                    .frame(maxWidth: 240)
+                                    .frame(maxWidth: 260)
                             }
                             Spacer()
                             Image(systemName: "chevron.right").foregroundStyle(.secondary)
                         }
-                        .padding(16)
-                        .background(AppTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                        .padding(12)
+                        .background(AppTheme.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
                     }
                     .buttonStyle(.plain)
                 }
 
                 if !library.visibleFolders.isEmpty && library.search.isEmpty {
                     Text("Folder").font(.headline)
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 10)], spacing: 10) {
                         ForEach(library.visibleFolders) { folder in
                             Button { library.selectedFolder = folder.path } label: {
                                 HStack(spacing: 10) {
@@ -405,8 +407,9 @@ struct LibraryView: View {
                                     Text(folder.name).lineLimit(1)
                                     Spacer(minLength: 0)
                                 }
-                                .padding(13)
-                                .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 9))
+                                .padding(.horizontal, 11)
+                                .padding(.vertical, 10)
+                                .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
                             }
                             .buttonStyle(.plain)
                         }
@@ -420,7 +423,7 @@ struct LibraryView: View {
                         .foregroundStyle(.secondary)
                 }
                 if library.listMode {
-                    LazyVStack(spacing: 2) {
+                    LazyVStack(spacing: 0) {
                         ForEach(library.visibleBooks) { book in
                             BookListRow(book: book)
                                 .id(book.id)
@@ -428,8 +431,8 @@ struct LibraryView: View {
                     }
                     .scrollTargetLayout()
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 142, maximum: 190), spacing: 20)],
-                              alignment: .leading, spacing: 22) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 128, maximum: 164), spacing: 16)],
+                              alignment: .leading, spacing: 18) {
                         ForEach(library.visibleBooks) { book in
                             BookGridCard(book: book)
                                 .id(book.id)
@@ -439,7 +442,7 @@ struct LibraryView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(22)
+            .padding(18)
         }
         .scrollPosition(id: $library.scrollAnchor)
     }
@@ -455,26 +458,27 @@ private struct BookGridCard: View {
             library.selectedBookID = book.id
             isFocused = true
         } label: {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 BookCoverImage(book: book)
                     .aspectRatio(0.72, contentMode: .fit)
                 Text(book.title).font(.subheadline.weight(.medium)).lineLimit(2)
-                Text(book.folderPath.isEmpty ? book.format.rawValue.uppercased() : book.folderPath)
-                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 if library.unavailableBookIDs.contains(book.id) {
                     Label("File tidak tersedia · klik untuk hubungkan", systemImage: "exclamationmark.triangle")
                         .font(.caption2)
                         .foregroundStyle(.orange)
                         .lineLimit(1)
                 }
-                BookProgressBar(book: book)
+                BookProgressBar(book: book, showsLabel: false)
             }
         }
         .buttonStyle(.plain)
         .focused($isFocused)
-        .padding(6)
-        .background(library.selectedBookID == book.id ? AppTheme.accent.opacity(0.15) : .clear,
+        .padding(5)
+        .background(library.selectedBookID == book.id ? AppTheme.accent.opacity(0.12) : .clear,
                     in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9)
+            .strokeBorder(library.selectedBookID == book.id ? AppTheme.accent.opacity(0.65) : .clear))
         .simultaneousGesture(TapGesture(count: 2).onEnded { library.open(book) })
         .onKeyPress(.return) {
             library.open(book)
@@ -495,32 +499,36 @@ private struct BookListRow: View {
             library.selectedBookID = book.id
             isFocused = true
         } label: {
-            HStack(spacing: 13) {
+            HStack(spacing: 11) {
                 BookCoverImage(book: book)
-                    .frame(width: 34, height: 47)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(book.title).fontWeight(.medium)
+                    .frame(width: 32, height: 44)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(book.title).font(.subheadline.weight(.medium)).lineLimit(1)
                     Text(book.relativePath).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    BookProgressBar(book: book)
-                        .frame(maxWidth: 220)
                 }
                 Spacer()
                 if library.unavailableBookIDs.contains(book.id) {
-                    Label("Temukan file", systemImage: "exclamationmark.triangle")
-                        .font(.caption2)
+                    Image(systemName: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
+                        .help("Temukan file")
                 } else {
-                    Text(book.format.rawValue.uppercased())
-                        .font(.caption2.monospaced()).foregroundStyle(.secondary)
+                    BookProgressBar(book: book, showsLabel: false)
+                        .frame(width: 112)
                 }
             }
-            .padding(10)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .focused($isFocused)
-        .background(library.selectedBookID == book.id ? AppTheme.accent.opacity(0.15) :
-                    Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .background(library.selectedBookID == book.id ? AppTheme.accent.opacity(0.14) :
+                    .clear, in: RoundedRectangle(cornerRadius: 7))
+        .overlay(alignment: .bottom) {
+            if library.selectedBookID != book.id {
+                Divider().padding(.leading, 52)
+            }
+        }
         .simultaneousGesture(TapGesture(count: 2).onEnded { library.open(book) })
         .onKeyPress(.return) {
             library.open(book)
@@ -533,6 +541,7 @@ private struct BookListRow: View {
 private struct BookProgressBar: View {
     @Environment(LibraryModel.self) private var library
     let book: BookFile
+    var showsLabel = true
     @State private var measuredCount: Int?
 
     private var version: String {
@@ -549,13 +558,15 @@ private struct BookProgressBar: View {
         }
         return VStack(alignment: .leading, spacing: 3) {
             ProgressView(value: progress.fraction(for: book.format))
-                .tint(AppTheme.accent)
+                .tint(progress.fraction(for: book.format) == 0 ? .clear : AppTheme.accent)
                 .accessibilityLabel("Progres \(book.title)")
                 .accessibilityValue(progress.progressLabel(for: book.format))
-            Text(progress.progressLabel(for: book.format))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            if showsLabel {
+                Text(progress.progressLabel(for: book.format))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
         .task(id: version) {
             measuredCount = nil

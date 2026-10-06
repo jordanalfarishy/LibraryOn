@@ -13,6 +13,7 @@ struct ReaderView: View {
             case .epub: EPUBReaderView(book: book)
             }
         }
+        .navigationTitle(book.title)
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button {
@@ -53,13 +54,15 @@ struct PlayerControls<Leading: View>: View {
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) {
-                leading.frame(width: 300, alignment: .leading)
-                Spacer(minLength: 0)
+            ZStack {
                 transport
-                Spacer(minLength: 0)
-                settings.frame(width: 300, alignment: .trailing)
+                HStack(spacing: 0) {
+                    leading.frame(width: 320, alignment: .leading)
+                    Spacer(minLength: 0)
+                    settings.frame(width: 320, alignment: .trailing)
+                }
             }
+            .frame(minWidth: 790)
             VStack(spacing: 10) {
                 HStack(spacing: 12) {
                     leading
@@ -70,9 +73,14 @@ struct PlayerControls<Leading: View>: View {
             }
         }
         .buttonStyle(.borderless)
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .background(.regularMaterial)
+        .tint(.primary)
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 9)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .overlay(alignment: .top) {
+            Rectangle().fill(Color.primary.opacity(0.2)).frame(height: 1)
+        }
     }
 
     private var transport: some View {
@@ -89,6 +97,7 @@ struct PlayerControls<Leading: View>: View {
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(.borderedProminent)
+            .tint(AppTheme.accent)
             .controlSize(.large)
             .disabled(player.segments.isEmpty)
             .help(player.isPlaying ? "Jeda" : "Putar")
@@ -96,11 +105,15 @@ struct PlayerControls<Leading: View>: View {
                 .disabled(player.segments.isEmpty)
                 .help("Kalimat berikutnya")
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
     }
 
     private var settings: some View {
         HStack(spacing: 10) {
             Image(systemName: "speedometer")
+                .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
             Slider(value: Binding(
                 get: { Double(player.rate) },
@@ -110,7 +123,9 @@ struct PlayerControls<Leading: View>: View {
             }) {
                 Text("Kecepatan baca")
             }
+            .labelsHidden()
             .frame(width: 190)
+            .tint(AppTheme.accent)
             .help("Geser ke kiri untuk lebih lambat, ke kanan untuk lebih cepat")
             Menu {
                 Menu("Bahasa Buku") {
@@ -431,72 +446,6 @@ struct PDFReaderView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(book.title).font(.headline).lineLimit(1)
-                    Text(book.relativePath).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
-                if let label = readingDocument?.pdfContentLabel {
-                    Text(preparingText ? "Memindai teks PDF" : label)
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Menu {
-                    if outlineEntries.isEmpty {
-                        Text("PDF ini tidak memiliki daftar isi")
-                    } else {
-                        ForEach(outlineEntries) { entry in
-                            Button(String(repeating: "  ", count: entry.depth) + entry.title) {
-                                pageIndex = entry.page
-                            }
-                        }
-                    }
-                } label: { Image(systemName: "list.bullet.indent") }
-                .disabled(document == nil || outlineEntries.isEmpty)
-                .help("Daftar Isi")
-                .accessibilityLabel("Daftar Isi")
-                Menu {
-                    Button("Tandai Halaman Ini", systemImage: "bookmark.badge.plus") {
-                        addBookmark()
-                    }
-                    Divider()
-                    if bookmarks.isEmpty {
-                        Text("Belum ada penanda")
-                    } else {
-                        ForEach(bookmarks) { bookmark in
-                            Menu(bookmark.title) {
-                                Button("Buka") { pageIndex = bookmark.pdfPage }
-                                Button("Hapus", role: .destructive) {
-                                    library.progressStore.removeBookmark(bookmark.id, bookID: book.id)
-                                    bookmarks = library.progressStore.bookmarks(for: book.id)
-                                }
-                            }
-                        }
-                    }
-                } label: { Image(systemName: "bookmark") }
-                .disabled(document == nil)
-                .help("Penanda bacaan")
-                .accessibilityLabel("Penanda bacaan")
-                if #available(macOS 15.0, *) {
-                    Button {
-                        showText = false
-                        mangaEnabled.toggle()
-                    } label: {
-                        Image(systemName: mangaEnabled ? "character.bubble.fill" : "character.bubble")
-                    }
-                    .disabled(document == nil)
-                    .help(mangaEnabled ? "Tutup terjemahan manga" : "Terjemahkan manga per halaman")
-                    .accessibilityLabel("Terjemahkan manga")
-                } else {
-                    Button {} label: { Image(systemName: "character.bubble") }
-                        .disabled(true)
-                        .help("Terjemahan manga memerlukan macOS 15 atau lebih baru")
-                }
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
-            Divider()
-
             if let document {
                 if showText {
                     textReader
@@ -568,6 +517,61 @@ struct PDFReaderView: View {
             PlayerControls(player: player, onPlay: playFromSelection,
                            leading: pageControls)
         }
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Menu {
+                    if outlineEntries.isEmpty {
+                        Text("PDF ini tidak memiliki daftar isi")
+                    } else {
+                        ForEach(outlineEntries) { entry in
+                            Button(String(repeating: "  ", count: entry.depth) + entry.title) {
+                                pageIndex = entry.page
+                            }
+                        }
+                    }
+                } label: { Image(systemName: "list.bullet.indent") }
+                .disabled(document == nil || outlineEntries.isEmpty)
+                .help("Daftar Isi")
+                .accessibilityLabel("Daftar Isi")
+                Menu {
+                    Button("Tandai Halaman Ini", systemImage: "bookmark.badge.plus") {
+                        addBookmark()
+                    }
+                    Divider()
+                    if bookmarks.isEmpty {
+                        Text("Belum ada penanda")
+                    } else {
+                        ForEach(bookmarks) { bookmark in
+                            Menu(bookmark.title) {
+                                Button("Buka") { pageIndex = bookmark.pdfPage }
+                                Button("Hapus", role: .destructive) {
+                                    library.progressStore.removeBookmark(bookmark.id, bookID: book.id)
+                                    bookmarks = library.progressStore.bookmarks(for: book.id)
+                                }
+                            }
+                        }
+                    }
+                } label: { Image(systemName: "bookmark") }
+                .disabled(document == nil)
+                .help("Penanda bacaan")
+                .accessibilityLabel("Penanda bacaan")
+                if #available(macOS 15.0, *) {
+                    Button {
+                        showText = false
+                        mangaEnabled.toggle()
+                    } label: {
+                        Image(systemName: mangaEnabled ? "character.bubble.fill" : "character.bubble")
+                    }
+                    .disabled(document == nil)
+                    .help(mangaEnabled ? "Tutup terjemahan manga" : "Terjemahkan manga per halaman")
+                    .accessibilityLabel("Terjemahkan manga")
+                } else {
+                    Button {} label: { Image(systemName: "character.bubble") }
+                        .disabled(true)
+                        .help("Terjemahan manga memerlukan macOS 15 atau lebih baru")
+                }
+            }
+        }
         .onAppear {
             load()
             let preference = SpeechPreferences.load(for: book.id)
@@ -600,7 +604,7 @@ struct PDFReaderView: View {
             .help("Halaman sebelumnya (↑)")
             Text("\(min(pageIndex + 1, document?.pageCount ?? 0)) / \(document?.pageCount ?? 0)")
                 .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary)
             Button { followReading = false; pageIndex = min((document?.pageCount ?? 1) - 1, pageIndex + 1) } label: {
                 Image(systemName: "arrow.down")
             }
@@ -636,6 +640,9 @@ struct PDFReaderView: View {
                 .help("Pusatkan kalimat yang sedang dibaca dan ikuti bacaan lagi")
             }
         }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var textReader: some View {

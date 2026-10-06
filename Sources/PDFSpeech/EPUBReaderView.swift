@@ -352,12 +352,53 @@ struct EPUBReaderView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(book.title).font(.headline).lineLimit(1)
-                    Text(book.relativePath).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            if let folder = extractedFolder, let offlineRule {
+                ZStack {
+                    EPUBCanvas(folder: folder,
+                               offlineRule: offlineRule,
+                               initialCFI: library.progressStore.value(for: book.id)?.epubCFI ?? "",
+                               appearance: appearance,
+                               session: session) { payload in
+                        session.handle(payload, book: book, store: library.progressStore)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if let error = session.error {
+                        ContentUnavailableView("EPUB tidak dapat dibuka", systemImage: "book.closed",
+                                               description: Text(error))
+                    } else if !session.isReady {
+                        ProgressView(session.loadingPhase)
+                    }
                 }
-                Spacer()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error = session.error {
+                ContentUnavailableView("EPUB tidak dapat dibuka", systemImage: "book.closed",
+                                       description: Text(error))
+            } else {
+                ProgressView("Menyiapkan EPUB…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            Divider()
+            if let error = session.player.error {
+                Text(error).font(.caption).foregroundStyle(.orange).padding(.top, 6)
+            }
+            PlayerControls(player: session.player,
+                           onPlay: session.playFromSelection,
+                           leading: returnToReadingControl)
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button { session.previousChapter() } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .disabled(!session.isReady)
+                .help("Bab sebelumnya")
+                Text("Bab \(session.chapter + 1)")
+                    .font(.caption.monospacedDigit())
+                Button { session.nextChapter() } label: {
+                    Image(systemName: "chevron.right")
+                }
+                .disabled(!session.isReady)
+                .help("Bab berikutnya")
                 Menu {
                     if session.toc.isEmpty {
                         Text("EPUB ini tidak memiliki daftar isi")
@@ -422,42 +463,6 @@ struct EPUBReaderView: View {
                 .help("Tipografi dan tema EPUB · \(fontPercent)%")
                 .accessibilityLabel("Tipografi dan tema EPUB")
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
-            Divider()
-
-            if let folder = extractedFolder, let offlineRule {
-                ZStack {
-                    EPUBCanvas(folder: folder,
-                               offlineRule: offlineRule,
-                               initialCFI: library.progressStore.value(for: book.id)?.epubCFI ?? "",
-                               appearance: appearance,
-                               session: session) { payload in
-                        session.handle(payload, book: book, store: library.progressStore)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    if let error = session.error {
-                        ContentUnavailableView("EPUB tidak dapat dibuka", systemImage: "book.closed",
-                                               description: Text(error))
-                    } else if !session.isReady {
-                        ProgressView(session.loadingPhase)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = session.error {
-                ContentUnavailableView("EPUB tidak dapat dibuka", systemImage: "book.closed",
-                                       description: Text(error))
-            } else {
-                ProgressView("Menyiapkan EPUB…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            Divider()
-            if let error = session.player.error {
-                Text(error).font(.caption).foregroundStyle(.orange).padding(.top, 6)
-            }
-            PlayerControls(player: session.player,
-                           onPlay: session.playFromSelection,
-                           leading: chapterControls)
         }
         .task { await prepare() }
         .onAppear {
@@ -471,30 +476,14 @@ struct EPUBReaderView: View {
         .onDisappear { session.player.stop() }
     }
 
-    private var chapterControls: some View {
-        HStack(spacing: 8) {
-            Button { session.previousChapter() } label: {
-                Image(systemName: "chevron.left")
+    @ViewBuilder private var returnToReadingControl: some View {
+        if !session.followReading &&
+            (session.player.isPlaying || session.player.isPaused) &&
+            !session.player.segments.isEmpty {
+            Button { session.returnToReading() } label: {
+                Label("Kembali ke Bacaan", systemImage: "scope")
             }
-            .disabled(!session.isReady)
-            .help("Bab sebelumnya")
-            Text("Bab \(session.chapter + 1)")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-            if !session.followReading &&
-                (session.player.isPlaying || session.player.isPaused) &&
-                !session.player.segments.isEmpty {
-                Button { session.returnToReading() } label: {
-                    Image(systemName: "scope")
-                }
-                .help("Kembali ke bacaan dan ikuti kalimat aktif")
-                .accessibilityLabel("Kembali ke Bacaan")
-            }
-            Button { session.nextChapter() } label: {
-                Image(systemName: "chevron.right")
-            }
-            .disabled(!session.isReady)
-            .help("Bab berikutnya")
+            .help("Pusatkan kalimat aktif dan ikuti bacaan lagi")
         }
     }
 

@@ -2,12 +2,12 @@
 
 | Atribut | Nilai |
 | --- | --- |
-| Versi | 2.5 — M2 lulus, M3 auto-follow teruji |
+| Versi | 2.6 — M2 lulus, M3 auto-follow dan penataan Reader teruji |
 | Tanggal | 6 Oktober 2026 |
 | Nama aplikasi | LibraryOn |
 | Platform | Aplikasi native macOS, minimum macOS 14; Apple Silicon untuk MVP |
 | Fokus | Membaca dan mendengarkan PDF/EPUB dengan text-to-speech; terjemahan manga PDF per halaman pada P1 |
-| Status | Build 0.5.1 (15); gate M0–M2 lulus, M3 sedang dikerjakan |
+| Status | Build 0.5.2 (16); gate M0–M2 lulus, M3 sedang dikerjakan |
 
 ## 1. Ringkasan produk
 
@@ -17,7 +17,7 @@ LibraryOn adalah aplikasi Mac untuk membuka folder berisi ebook, menjelajahi sub
 
 MVP berfokus pada PDF berbasis teks dan EPUB reflowable tanpa DRM, penjelajahan folder yang cepat, serta suara sistem yang dapat digunakan offline setelah tersedia di perangkat. File ebook tetap di folder pengguna; aplikasi hanya menyimpan indeks, sampul, cache pemrosesan, pengaturan, dan progres. Saat diluncurkan kembali, aplikasi menampilkan folder terakhir agar pengguna langsung dapat memilih buku.
 
-Keputusan yang telah dikonfirmasi pengguna: nama aplikasi LibraryOn; akses koleksi melalui beberapa folder pustaka yang dapat dipilih langsung, tanpa alur impor buku satu per satu; sampul buku memakai halaman pertama; kontrol Reader berada di bawah; seleksi teks dapat menjadi titik mulai TTS; setiap buku menampilkan progres baca. Pengguna juga menginginkan terjemahan manga PDF yang diproses saat halaman dibuka dan, setelah MVP, daftar video yang membuka pemutar default. Aplikasi direncanakan untuk penggunaan pribadi di Mac, dengan bahasa bacaan Indonesia dan Inggris, tanpa akun, sinkronisasi, atau pemrosesan dokumen di server. Riset referensi berasal dari dokumentasi resmi; belum ada benchmark langsung terhadap aplikasi pesaing.
+Keputusan yang telah dikonfirmasi pengguna: nama aplikasi LibraryOn; akses koleksi melalui beberapa folder pustaka yang dapat dipilih langsung, tanpa alur impor buku satu per satu; sampul buku memakai halaman pertama; judul buku dan tindakan bacaan berada di title bar Reader, sedangkan player serta navigasi halaman PDF berada di bawah; seleksi teks dapat menjadi titik mulai TTS; setiap buku menampilkan progres baca. Pengguna juga menginginkan terjemahan manga PDF yang diproses saat halaman dibuka dan, setelah MVP, daftar video yang membuka pemutar default. Aplikasi direncanakan untuk penggunaan pribadi di Mac, dengan bahasa bacaan Indonesia dan Inggris, tanpa akun, sinkronisasi, atau pemrosesan dokumen di server. Riset referensi berasal dari dokumentasi resmi; belum ada benchmark langsung terhadap aplikasi pesaing.
 
 ### Status implementasi per 6 Oktober 2026
 
@@ -25,18 +25,18 @@ Status di bawah merujuk pada kode prototipe yang ada, **bukan** tanda bahwa acce
 
 | Area | Status | Yang tersedia saat ini | Batas yang masih ada |
 | --- | --- | --- | --- |
-| Pustaka folder | Sebagian | Beberapa folder akar dengan akses persisten, indeks lokal berversi, scan bertahap, watcher, relink buku hilang, dan konfirmasi isi berubah; sidebar, breadcrumb, grid/daftar, pencarian nama, urutan nama/terakhir dibaca/terakhir diubah, serta progres per buku; root dan subfolder pulih saat relaunch | Benchmark p95 1.000 buku, drag-and-drop langsung di build sandbox, serta audit keyboard/VoiceOver menyeluruh masih menjadi validasi beta |
+| Pustaka folder | Sebagian | Beberapa folder akar dengan akses persisten, indeks lokal berversi, scan bertahap, watcher, relink buku hilang, dan konfirmasi isi berubah; sidebar dengan padding seragam, breadcrumb, grid/daftar ringkas, pencarian nama, urutan nama/terakhir dibaca/terakhir diubah, serta progres per buku; root dan subfolder pulih saat relaunch | Benchmark p95 1.000 buku, drag-and-drop langsung di build sandbox, serta audit keyboard/VoiceOver menyeluruh masih menjadi validasi beta |
 | Sampul dan identitas visual | Ada | Pratinjau halaman pertama PDF/EPUB sebagai sampul; ikon terang/gelap dari `AppIcon` dengan margin Dock; aksen aplikasi mengikuti ikon | Beberapa halaman EPUB yang tidak dapat dirender masih memakai placeholder |
 | PDF Reader | Sebagian | Tampilan asli/teks, halaman atas/bawah, zoom, outline, seleksi kata untuk mulai TTS; teks dan antrean audio tersedia bertahap dari halaman pertama lalu tiap 16 halaman, dengan cache berversi; halaman tanpa teks ditandai dan tidak dilompati otomatis; teks dapat disalin serta membuka lokasi sumber | OCR TTS umum dan urutan dua kolom belum ada; QA dokumen nyata dan beban besar ada di M4 |
 | EPUB Reader | Sebagian | EPUB 2/3 reflowable tampil pada build sandbox dengan bab, daftar isi, CFI, footnote, font, spasi, dan tema; cache pemetaan per bab berversi; konten HTTP/HTTPS diblokir; EPUB dengan skrip/interaksi aktif ditolak; locator dalam bab panjang bertahan setelah font, spasi, resize, dan reopen | Belum ada dukungan fixed-layout/interaktif; ragam buku nyata masih perlu validasi beta |
 | Terjemahan manga PDF | Sebagian | Tombol Reader pada macOS 15+, OCR halaman aktif, pilihan Jepang → Indonesia/Inggris, terjemahan lokal, panel hasil, overlay sementara untuk gambar dan layer teks, sakelar Asli/Terjemahan, fallback per dialog, dan cache lokal maksimal 20 halaman; persiapan model bahasa serta statusnya berada di jendela utama agar tetap terlihat saat panel ditutup | Baru diuji dengan PDF sintetis; unduhan model yang belum terpasang, tulisan vertikal/furigana, halaman berotasi, kecocokan overlay pada manga nyata, latensi, memori, dan alur UI menyeluruh belum divalidasi |
 | Kontrol data lokal | Sebagian | Bersihkan Cache menghapus data yang dapat dibangun ulang; Reset Progres dan Penanda memakai konfirmasi terpisah; tes memastikan cache tidak menghapus progres | Belum diuji dengan koleksi besar dan skenario proses aktif/akses folder hilang |
-| TTS | Sebagian | Suara sistem, play/pause, kalimat sebelum/sesudah, slider kecepatan, sorotan aktif; bahasa dan suara disimpan per buku, menu pratinjau tersedia; kontrol bawah dengan player di tengah | Media keys, QA audio preview langsung, perangkat tanpa suara terpilih, dan uji audio panjang belum selesai |
+| TTS | Sebagian | Suara sistem, play/pause, kalimat sebelum/sesudah, slider kecepatan, sorotan aktif; bahasa dan suara disimpan per buku, menu pratinjau tersedia; kontrol bawah berkontras lebih jelas dengan player di tengah | Media keys, QA audio preview langsung, perangkat tanpa suara terpilih, dan uji audio panjang belum selesai |
 | Posisi dan penanda | Sebagian | Halaman visual PDF dan indeks kalimat audio disimpan terpisah; EPUB memakai CFI dan indeks kalimat; bookmark PDF/EPUB dapat dibuat, dibuka, dihapus | Resume dari offset kata terseleksi, validasi locator saat isi file berubah, dan uji reopen/crash menyeluruh belum ada |
 | Bar progres per buku | Sebagian | Grid/daftar menampilkan bar posisi untuk setiap file: halaman/total halaman PDF, bab/total bagian EPUB, atau kosong sebelum dibuka | Persentase EPUB masih perkiraan berbasis bab; belum mengukur posisi di dalam bab dan belum menguji migrasi data pada semua instalasi lama |
 | Aksesibilitas dan distribusi | Sebagian | Cmd+O, Enter, panah halaman PDF, label kontrol dasar, build aplikasi lokal bertanda tangan ad-hoc | Audit VoiceOver/keyboard, signing pengembang, notarization, dan uji Mac bersih belum ada |
 
-Build dan tes otomatis: **57 tes lokal lulus** mencakup kontrak locator, cache kedua format, antrean PDF bertahap, PDF campuran, render ulang EPUB, pilihan suara per buku, scroll manual EPUB, serta urutan 400 kalimat referensi. Build lokal 0.5.1 (15) lulus verifikasi tanda tangan. [GitHub Actions M2 dan awal M3](https://github.com/jordanalfarishy/LibraryOn/actions/runs/37454324137) lulus untuk tes, build, signature, dan entitlement; CI perubahan auto-follow terbaru akan diperiksa setelah push. Sintesis suara Indonesia/Inggris tanpa jaringan menghasilkan frame audio dan callback pada M0. Detail ada di [validasi M0](Docs/M0-validation.md), [validasi M1](Docs/M1-validation.md), [validasi M2](Docs/M2-validation.md), dan [validasi M3](Docs/M3-validation.md). Hasil ini belum membuktikan alur UI unduhan model yang belum terpasang, kualitas manga nyata, atau target rilis di Bagian 8.
+Build dan tes otomatis: **57 tes lokal lulus** mencakup kontrak locator, cache kedua format, antrean PDF bertahap, PDF campuran, render ulang EPUB, pilihan suara per buku, scroll manual EPUB, serta urutan 400 kalimat referensi. Build lokal 0.5.2 (16) lulus verifikasi tanda tangan. [GitHub Actions M3 auto-follow](https://github.com/jordanalfarishy/LibraryOn/actions/runs/37478835692) lulus untuk tes, build, signature, dan entitlement; CI penataan UI ini akan diperiksa setelah push. Sintesis suara Indonesia/Inggris tanpa jaringan menghasilkan frame audio dan callback pada M0. Detail ada di [validasi M0](Docs/M0-validation.md), [validasi M1](Docs/M1-validation.md), [validasi M2](Docs/M2-validation.md), dan [validasi M3](Docs/M3-validation.md). Hasil ini belum membuktikan alur UI unduhan model yang belum terpasang, kualitas manga nyata, atau target rilis di Bagian 8.
 
 **Kemajuan B03 — sebagian:** Pipeline halaman aktif sudah berjalan dari PDFKit ke Vision dan Translation framework. Hasil tampil pada panel dan overlay sementara PDF gambar/layer teks yang dapat dimatikan tanpa menulis ke file sumber; latar overlay telah diperiksa lewat render PDF. Berpindah halaman membatalkan pekerjaan sebelumnya dan cache lokal dibatasi 20 halaman, dapat dipakai setelah proses baru, serta dibedakan menurut versi file, halaman, bahasa, dan pipeline. Respons batch dicocokkan ke dialog melalui ID; kegagalan batch memicu percobaan per dialog, sementara blok yang gagal mempertahankan teks asli. Persiapan model dipindahkan dari panel ke jendela utama; indikator status tetap tampil ketika panel ditutup dan memantau hingga model tersedia, dengan tindakan Coba Lagi. Pasangan Jepang → Indonesia berhasil diuji secara lokal dengan kalimat sintetis pada Mac pengembangan. B03 tetap belum selesai sampai corpus manga nyata, ketepatan overlay pada ragam tata letak, performa, fallback kegagalan per blok, dan perilaku model yang belum terpasang diverifikasi.
 
@@ -187,16 +187,16 @@ Rancangan ini **memungkinkan secara teknis, tetapi kualitas manga belum terbukti
 
 | Layar/area | Isi utama |
 | --- | --- |
-| Library sidebar | Folder akar aktif, pohon subfolder, Terakhir Dibaca/Sedang Dibaca/Selesai, Buka Folder Lain |
+| Library sidebar | Daftar folder pustaka, pohon subfolder aktif, dan menu Kelola Pustaka |
 | Library toolbar | Breadcrumb, kembali, pencarian beserta cakupan, grid/daftar, urutan, dan Segarkan |
 | Library utama | Folder, sampul buku, progres, status ketersediaan, serta kartu Lanjutkan Membaca |
-| Reader sidebar | Bab/halaman dan bookmark; dapat disembunyikan |
+| Reader title bar | Judul buku; navigasi bab, daftar isi, penanda, dan tipografi EPUB; daftar isi, penanda, dan terjemahan PDF |
 | Reader utama | PDF asli, teks hasil ekstraksi, atau EPUB; sorotan kalimat aktif |
 | Mode manga PDF (P1) | Terjemahkan Otomatis, pilihan bahasa, progres per halaman, tampilan Asli/Terjemahan, dan panel hasil yang tidak menimpa file sumber |
-| Player bawah | Sebelumnya, Play/Pause, berikutnya, suara, kecepatan, posisi, dan Kembali ke bacaan |
+| Player bawah | Halaman/tampilan PDF di kiri, kalimat sebelumnya, Play/Pause dan berikutnya di tengah, kecepatan dan suara di kanan, serta Kembali ke bacaan saat diperlukan |
 | Settings | Suara default per bahasa, tema, folder terbaru, ukuran/pembersihan cache, dan bantuan |
 
-Prinsip tampilan: konten menjadi pusat perhatian, kontrol audio selalu mudah ditemukan, ikon memiliki label aksesibilitas, dan informasi teknis parser tidak muncul dalam alur normal.
+Prinsip tampilan: konten menjadi pusat perhatian, sidebar dan kartu buku ringkas dengan margin konsisten, title bar Reader menggantikan judul aplikasi saat buku terbuka, kontrol audio selalu mudah ditemukan, ikon memiliki label aksesibilitas, dan informasi teknis parser tidak muncul dalam alur normal.
 
 ## 7. Kebutuhan fungsional dan acceptance criteria
 
@@ -451,7 +451,7 @@ Daftar ini memuat **35 task MVP dan 11 task backlog**. Status **Sebagian** berar
 | Sebagian | T24 | Implementasikan bookmark dan navigasinya | Engineer | T17, T23 | FR-14 lulus pada dua format dan setelah reopen |
 | Sebagian | T25 | Tangani lifecycle, audio terputus, dan sumber berubah/hilang | Engineer | T20, T23, T34, T35 | FR-18/21 lulus; volume terlepas atau isi berubah saat play menyebabkan pause dan pemulihan yang jelas |
 
-**M3 berlanjut pada build 0.5.1 (15).** Menu suara menyediakan bahasa per buku, daftar suara sistem sesuai bahasa, dan contoh suara; pilihan dipulihkan ketika buku dibuka lagi. Suara tersimpan yang hilang menghasilkan pesan tanpa fallback bahasa diam-diam. Antrean TTS bertahap memakai session token dan hanya mengirim satu ujaran pada satu waktu. T22 dinyatakan **Selesai** setelah uji UI PDF asli, PDF teks, dan EPUB menunjukkan scroll manual tidak menjeda audio dan tombol kembali memusatkan kalimat aktif. T18/T19 serta T20/T21/T23–T25 tetap **Sebagian** sampai skenario audio panjang, pergantian cepat, interupsi, perangkat tanpa suara, dan pemulihan langsung diperiksa. Detail ada di [validasi M3](Docs/M3-validation.md).
+**M3 berlanjut pada build 0.5.2 (16).** Menu suara menyediakan bahasa per buku, daftar suara sistem sesuai bahasa, dan contoh suara; pilihan dipulihkan ketika buku dibuka lagi. Suara tersimpan yang hilang menghasilkan pesan tanpa fallback bahasa diam-diam. Antrean TTS bertahap memakai session token dan hanya mengirim satu ujaran pada satu waktu. T22 dinyatakan **Selesai** setelah uji UI PDF asli, PDF teks, dan EPUB menunjukkan scroll manual tidak menjeda audio dan tombol kembali memusatkan kalimat aktif. T18/T19 serta T20/T21/T23–T25 tetap **Sebagian** sampai skenario audio panjang, pergantian cepat, interupsi, perangkat tanpa suara, dan pemulihan langsung diperiksa. Penataan UI pada build 0.5.2 memindahkan judul buku, navigasi bab EPUB, daftar isi, penanda, tipografi, dan terjemahan PDF ke title bar; kartu Library dan sidebar lebih ringkas; player bawah memiliki kontras dan perataan yang lebih jelas. QA UI memakai PDF/EPUB sintetis dan memverifikasi judul jendela, tombol bab, halaman PDF, serta mode grid/daftar. Detail ada di [validasi M3](Docs/M3-validation.md).
 
 ### Milestone 4 — verifikasi dan beta
 
