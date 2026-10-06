@@ -8,7 +8,7 @@ jobs:
   verify:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Run Swift tests
         run: swift test
       - name: Build signed local app
