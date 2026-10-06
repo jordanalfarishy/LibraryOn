@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline' blob:; img-src 'self' data: blob:; font-src 'self' data: blob:; connect-src 'self' blob:; frame-src 'self' blob:;">
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--reader-bg, #faf9f6); }
+    #viewer { width: 100%; height: 100%; }
+  </style>
+  <script>
+    // Antrean epub.js dimulai saat konstruksi; WebKit bisa menunda frame awal.
+    // Jadwalkan antrean sebelum library menangkap requestAnimationFrame.
+    window.requestAnimationFrame = callback => setTimeout(callback, 16);
+  </script>
+  <script src="/epub.min.js"></script>
+</head>
+<body>
+  <div id="viewer"></div>
+  <script>
+    const post = data => window.webkit.messageHandlers.reader.postMessage(data);
+    let book, rendition, currentDocument, blocks = [];
+    const params = new URLSearchParams(location.search);
+    const initialCFI = params.get('cfi') || undefined;
+    const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+    function normalizeAppearance(value) {
+      const font = value.fontPercent == null ? NaN : Number(value.fontPercent);
+      const line = value.lineHeight == null ? NaN : Number(value.lineHeight);
+      return {
+        fontPercent: Number.isFinite(font) ? Math.min(200, Math.max(80, font)) : 100,
+        lineHeight: Number.isFinite(line) ? Math.min(2, Math.max(1.2, line)) : 1.5,
+        theme: ['system', 'light', 'sepia', 'dark'].includes(value.theme) ? value.theme : 'system'
+      };
+    }
+    let appearance = normalizeAppearance({fontPercent:params.get('font'),
+                                          lineHeight:params.get('line'),
+                                          theme:params.get('theme')});
+    function palette() {
+      const name = appearance.theme === 'system'
+        ? (systemDark.matches ? 'dark' : 'light') : appearance.theme;
+      return {
+        light: {background:'#faf9f6', text:'#24211e', link:'#5b48aa'},
+        sepia: {background:'#f3ead7', text:'#3c3021', link:'#6f4c2c'},
+        dark: {background:'#1e2024', text:'#eeeae3', link:'#b9aaff'}
+      }[name];
+    }
+    function applyAppearance(doc) {
+      const colors = palette();
+      document.documentElement.style.setProperty('--reader-bg', colors.background);
+      if (!doc) return;
+      let style = doc.getElementById('pdf-speech-appearance');
+      if (!style) {
+        style = doc.createElement('style');
+        style.id = 'pdf-speech-appearance';
+        doc.head.appendChild(style);
+      }
+      style.textContent = `
+        html, body { background-color:${colors.background} !important;
+                     color:${colors.text} !important; }
+        body { font-size:${appearance.fontPercent}% !important;
+               line-height:${appearance.lineHeight} !important; }
+        p, li, blockquote, pre, h1, h2, h3, h4, h5, h6 {
+          color:${colors.text} !important;
+          line-height:${appearance.lineHeight} !important;
+        }
+        a { color:${colors.link} !important; }
+      `;
+    }
+    window.pdfSpeechSetAppearance = (value, restoreLocation = true) => {
+      const cfi = restoreLocation ? rendition?.currentLocation()?.start?.cfi : null;
+      appearance = normalizeAppearance(value);
+      rendition?.themes.fontSize(`${appearance.fontPercent}%`);
+      rendition?.themes.override('line-height', String(appearance.lineHeight), true);
+      applyAppearance(currentDocument);
+      if (cfi) rendition.display(cfi).catch(() => {});
+    };
+    systemDark.addEventListener('change', () => {
+      if (appearance.theme === 'system') applyAppearance(currentDocument);
+    });
+
+    function collectParagraphs(doc, section) {
+      if (!doc?.body) {
+        post({kind:'error', message:'Isi bab EPUB tidak dapat dibaca.'});
+        return;
+      }
+      currentDocument = doc;
+      const sectionIndex = section?.index;
+      applyAppearance(doc);
+      blocks = Array.from(doc.body.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,blockquote,pre'))
+        .filter(el => !el.closest('nav,script,style') && el.textContent.trim());
+      if (!blocks.length && doc.body.textContent.trim()) blocks = [doc.body];
+      blocks.forEach((el, index) => el.setAttribute('data-pdf-speech-index', index));
+      const style = doc.createElement('style');
+      style.textContent = '::highlight(pdf-speech-current) { background: rgba(111,68,217,.27); color: inherit; }';
+      doc.head.appendChild(style);
+      doc.body.addEventListener('dblclick', event => {
+        const el = event.target.closest('[data-pdf-speech-index]');
+        if (el) post({kind:'startAtParagraph', paragraph:Number(el.dataset.pdfSpeechIndex)});
+      });
+      doc.body.addEventListener('click', event => {
+        const anchor = event.target.closest('a[href]');
+        if (!anchor) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const href = anchor.getAttribute('href');
+        if (!href || /^(?:https?:|mailto:|javascript:|data:)/i.test(href)) return;
+        try {
+          const base = new URL(section?.href || '', 'book://reader/publication/');
+          const target = new URL(href, base);
+          if (target.protocol !== 'book:' || target.host !== 'reader' ||
+              !target.pathname.startsWith('/publication/')) return;
+          window.pdfSpeechOpenLink(target.href);
+        } catch (_) {}
+      }, true);
+      const location = rendition.currentLocation();
+      post({kind:'chapter', index:sectionIndex ?? location?.start?.index ?? 0,
+            paragraphs:blocks.map(el => el.textContent),
+            cfi:location?.start?.cfi || ''});
+      if (location?.start?.cfi) {
+        post({kind:'location', cfi:location.start.cfi,
+              index:location.start.index ?? sectionIndex ?? 0,
+              chapterCount:book.spine?.spineItems?.length || 0});
+      }
+    }
+
+    window.pdfSpeechHighlight = (paragraph, offset, length) => {
+      if (!currentDocument || !blocks[paragraph]) return;
+      const element = blocks[paragraph];
+      const walker = currentDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      let node, cursor = 0, startNode, endNode, startOffset = 0, endOffset = 0;
+      const end = offset + length;
+      while ((node = walker.nextNode())) {
+        const next = cursor + node.textContent.length;
+        if (!startNode && offset < next) { startNode = node; startOffset = Math.max(0, offset - cursor); }
+        if (startNode && end <= next) { endNode = node; endOffset = Math.max(0, end - cursor); break; }
+        cursor = next;
+      }
+      if (!startNode || !endNode) return;
+      const range = currentDocument.createRange();
+      range.setStart(startNode, startOffset);
+      range.setEnd(endNode, endOffset);
+      if (currentDocument.defaultView.CSS?.highlights) {
+        currentDocument.defaultView.CSS.highlights.set('pdf-speech-current',
+          new currentDocument.defaultView.Highlight(range));
+      } else {
+        const selection = currentDocument.getSelection();
+        selection.removeAllRanges(); selection.addRange(range);
+      }
+      element.scrollIntoView({block:'center', behavior:'smooth'});
+    };
+    function adjacentChapter(direction) {
+      const items = book.spine?.spineItems || [];
+      const index = rendition.currentLocation()?.start?.index || 0;
+      const target = items[index + direction];
+      return target ? rendition.display(target.href) : Promise.resolve();
+    }
+    window.pdfSpeechNext = () => adjacentChapter(1);
+    window.pdfSpeechPrevious = () => adjacentChapter(-1);
+    window.pdfSpeechGo = cfi => rendition.display(cfi);
+    window.pdfSpeechOpenLink = address => {
+      const url = new URL(address);
+      if (url.protocol !== 'book:' || url.host !== 'reader' ||
+          !url.pathname.startsWith('/publication/')) return;
+      const path = decodeURIComponent(url.pathname.slice('/publication/'.length));
+      const items = book.spine?.spineItems || [];
+      const item = items.find(section => section.href === path) ||
+        items.find(section => path.endsWith('/' + section.href) ||
+                              section.href.endsWith('/' + path));
+      if (!item) return;
+      rendition.display(item.href + url.hash).catch(error =>
+        post({kind:'error', message:'Tautan EPUB gagal dibuka: '+String(error)}));
+    };
+    window.pdfSpeechSelectedPosition = () => {
+      const selection = currentDocument?.getSelection();
+      if (!selection || selection.isCollapsed || !selection.rangeCount) return null;
+      const range = selection.getRangeAt(0);
+      const node = range.startContainer;
+      const element = node.nodeType === 1 ? node : node.parentElement;
+      const block = element?.closest('[data-pdf-speech-index]');
+      if (!block) return null;
+      const prefix = currentDocument.createRange();
+      prefix.selectNodeContents(block);
+      prefix.setEnd(node, range.startOffset);
+      const position = {chapter: rendition.currentLocation()?.start?.index || 0,
+                        paragraph: Number(block.dataset.pdfSpeechIndex),
+                        offset: prefix.toString().length};
+      selection.removeAllRanges();
+      return position;
+    };
+
+    try {
+      book = ePub('book://reader/publication/');
+      rendition = book.renderTo('viewer', { width:'100%', height:'100%',
+        flow:'scrolled-doc' });
+      rendition.themes.fontSize(`${appearance.fontPercent}%`);
+      rendition.themes.override('line-height', String(appearance.lineHeight), true);
+      rendition.on('rendered', (section, view) => {
+        try {
+          collectParagraphs(view.contents?.document || view.iframe?.contentDocument,
+                            section);
+        } catch (error) {
+          post({kind:'error', message:'Gagal membaca isi bab: '+String(error)});
+        }
+      });
+      rendition.on('relocated', location => {
+        post({kind:'location', cfi:location?.start?.cfi || '',
+              index:location?.start?.index || 0,
+              chapterCount:book.spine?.spineItems?.length || 0});
+      });
+      book.loaded.navigation.then(navigation => {
+        const entries = [];
+        function visit(items, depth) {
+          (items || []).forEach(item => {
+            if (item.href) entries.push({title:item.label || 'Bagian tanpa judul',
+                                         href:item.href, depth:Math.min(depth, 4)});
+            visit(item.subitems, depth + 1);
+          });
+        }
+        visit(navigation.toc, 0);
+        post({kind:'toc', entries});
+      }).catch(() => post({kind:'toc', entries:[]}));
+      book.ready.then(() => {
+        post({kind:'loading', message:initialCFI
+          ? 'Memulihkan lokasi EPUB…' : 'Memuat bab EPUB…'});
+        return rendition.display(initialCFI);
+      }).then(() => post({kind:'ready'}))
+        .catch(error => post({kind:'error', message:String(error)}));
+    } catch (error) {
+      post({kind:'error', message:String(error)});
+    }
+  </script>
+</body>
+</html>

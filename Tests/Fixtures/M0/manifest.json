@@ -1,0 +1,12 @@
+{
+  "license": "Seluruh konten dibuat secara sintetis oleh generator proyek ini.",
+  "primary_pdf": 10,
+  "primary_epub": 10,
+  "edge_pdf": 5,
+  "edge_epub": 5,
+  "documents_total": 30,
+  "reference_sentences": 400,
+  "index_folders": 100,
+  "index_books": 1000,
+  "notes": "PDF rusak dan EPUB rusak sengaja tidak dapat dibuka; DRM marker/fixed layout dipakai untuk uji penolakan."
+}

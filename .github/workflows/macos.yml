@@ -1,0 +1,20 @@
+name: macOS build and tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Swift tests
+        run: swift test
+      - name: Build signed local app
+        run: bash Scripts/build-app.sh
+      - name: Verify bundle signature and EPUB entitlement
+        run: |
+          codesign --verify --deep --strict 'dist/LibraryOn.app'
+          codesign -d --entitlements :- 'dist/LibraryOn.app' > /tmp/pdf-speech-entitlements.plist 2>/dev/null
+          /usr/libexec/PlistBuddy -c 'Print :com.apple.security.network.client' /tmp/pdf-speech-entitlements.plist | grep -Fx true
