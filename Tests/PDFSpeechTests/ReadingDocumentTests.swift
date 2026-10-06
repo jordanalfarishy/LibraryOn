@@ -167,6 +167,22 @@ final class ReadingDocumentTests: XCTestCase {
         XCTAssertEqual(session.player.segments.count, 2)
     }
 
+    @MainActor func testEPUBManualScrollPreservesAudioPositionUntilReturnToReading() throws {
+        let book = try book(fixtureFolder.appendingPathComponent("epub-01.epub"), format: .epub)
+        let store = ProgressStore(inMemory: true)
+        let session = EPUBSession()
+        session.handle(["kind": "chapter", "index": 0,
+                        "paragraphs": ["Kalimat satu. Kalimat dua."]], book: book, store: store)
+        session.player.currentIndex = 1
+
+        session.handle(["kind": "manualScroll"], book: book, store: store)
+        XCTAssertFalse(session.followReading)
+        XCTAssertEqual(session.player.currentIndex, 1)
+        session.returnToReading()
+        XCTAssertTrue(session.followReading)
+        XCTAssertEqual(session.player.currentIndex, 1)
+    }
+
     func testFourHundredReferenceSentencesRetainOrderAcrossPDFAndEPUB() throws {
         let reference = fixtureFolder.deletingLastPathComponent()
             .appendingPathComponent("reference-sentences.csv")

@@ -2,12 +2,12 @@
 
 | Atribut | Nilai |
 | --- | --- |
-| Versi | 2.4 — M2 lulus, M3 dimulai |
+| Versi | 2.5 — M2 lulus, M3 auto-follow teruji |
 | Tanggal | 6 Oktober 2026 |
 | Nama aplikasi | LibraryOn |
 | Platform | Aplikasi native macOS, minimum macOS 14; Apple Silicon untuk MVP |
 | Fokus | Membaca dan mendengarkan PDF/EPUB dengan text-to-speech; terjemahan manga PDF per halaman pada P1 |
-| Status | Build 0.5.0 (14); gate M0–M2 lulus, M3 sedang dikerjakan |
+| Status | Build 0.5.1 (15); gate M0–M2 lulus, M3 sedang dikerjakan |
 
 ## 1. Ringkasan produk
 
@@ -36,7 +36,7 @@ Status di bawah merujuk pada kode prototipe yang ada, **bukan** tanda bahwa acce
 | Bar progres per buku | Sebagian | Grid/daftar menampilkan bar posisi untuk setiap file: halaman/total halaman PDF, bab/total bagian EPUB, atau kosong sebelum dibuka | Persentase EPUB masih perkiraan berbasis bab; belum mengukur posisi di dalam bab dan belum menguji migrasi data pada semua instalasi lama |
 | Aksesibilitas dan distribusi | Sebagian | Cmd+O, Enter, panah halaman PDF, label kontrol dasar, build aplikasi lokal bertanda tangan ad-hoc | Audit VoiceOver/keyboard, signing pengembang, notarization, dan uji Mac bersih belum ada |
 
-Build dan tes otomatis: **56 tes lokal lulus** mencakup kontrak locator, cache kedua format, antrean PDF bertahap, PDF campuran, render ulang EPUB, pilihan suara per buku, serta urutan 400 kalimat referensi. Build lokal 0.5.0 (14) lulus verifikasi tanda tangan. [GitHub Actions M2 sebelumnya](https://github.com/jordanalfarishy/LibraryOn/actions/runs/37446077059) lulus untuk tes, build, signature, dan entitlement; CI perubahan terbaru akan diperiksa setelah push. Sintesis suara Indonesia/Inggris tanpa jaringan menghasilkan frame audio dan callback pada M0. Detail ada di [validasi M0](Docs/M0-validation.md), [validasi M1](Docs/M1-validation.md), [validasi M2](Docs/M2-validation.md), dan [validasi M3](Docs/M3-validation.md). Hasil ini belum membuktikan alur UI unduhan model yang belum terpasang, kualitas manga nyata, atau target rilis di Bagian 8.
+Build dan tes otomatis: **57 tes lokal lulus** mencakup kontrak locator, cache kedua format, antrean PDF bertahap, PDF campuran, render ulang EPUB, pilihan suara per buku, scroll manual EPUB, serta urutan 400 kalimat referensi. Build lokal 0.5.1 (15) lulus verifikasi tanda tangan. [GitHub Actions M2 dan awal M3](https://github.com/jordanalfarishy/LibraryOn/actions/runs/37454324137) lulus untuk tes, build, signature, dan entitlement; CI perubahan auto-follow terbaru akan diperiksa setelah push. Sintesis suara Indonesia/Inggris tanpa jaringan menghasilkan frame audio dan callback pada M0. Detail ada di [validasi M0](Docs/M0-validation.md), [validasi M1](Docs/M1-validation.md), [validasi M2](Docs/M2-validation.md), dan [validasi M3](Docs/M3-validation.md). Hasil ini belum membuktikan alur UI unduhan model yang belum terpasang, kualitas manga nyata, atau target rilis di Bagian 8.
 
 **Kemajuan B03 — sebagian:** Pipeline halaman aktif sudah berjalan dari PDFKit ke Vision dan Translation framework. Hasil tampil pada panel dan overlay sementara PDF gambar/layer teks yang dapat dimatikan tanpa menulis ke file sumber; latar overlay telah diperiksa lewat render PDF. Berpindah halaman membatalkan pekerjaan sebelumnya dan cache lokal dibatasi 20 halaman, dapat dipakai setelah proses baru, serta dibedakan menurut versi file, halaman, bahasa, dan pipeline. Respons batch dicocokkan ke dialog melalui ID; kegagalan batch memicu percobaan per dialog, sementara blok yang gagal mempertahankan teks asli. Persiapan model dipindahkan dari panel ke jendela utama; indikator status tetap tampil ketika panel ditutup dan memantau hingga model tersedia, dengan tindakan Coba Lagi. Pasangan Jepang → Indonesia berhasil diuji secara lokal dengan kalimat sintetis pada Mac pengembangan. B03 tetap belum selesai sampai corpus manga nyata, ketepatan overlay pada ragam tata letak, performa, fallback kegagalan per blok, dan perilaku model yang belum terpasang diverifikasi.
 
@@ -446,12 +446,12 @@ Daftar ini memuat **35 task MVP dan 11 task backlog**. Status **Sebagian** berar
 | Sebagian | T19 | Implementasikan picker/preview suara dan bahasa per buku | Engineer | T18, T08 | FR-08 lulus termasuk suara hilang dan bahasa tanpa suara |
 | Sebagian | T20 | Buat player, rate, dan previous/next sentence | Engineer | T18, T06 | FR-07/09 lulus; klik cepat tidak menghasilkan audio tumpang tindih |
 | Sebagian | T21 | Integrasikan sorotan aktif pada PDF teks/asli dan EPUB | Engineer | T15, T16, T18 | FR-10 lulus dengan pemetaan sumber dan callback sesi yang benar |
-| Sebagian | T22 | Implementasikan Baca dari sini, auto-follow, dan kembali ke bacaan | Engineer | T20, T21 | FR-11/12 lulus; seleksi dan scroll manual tetap nyaman |
+| Selesai | T22 | Implementasikan Baca dari sini, auto-follow, dan kembali ke bacaan | Engineer | T20, T21 | FR-11/12 lulus; seleksi dan scroll manual tetap nyaman |
 | Sebagian | T23 | Simpan/pulihkan posisi audio dan visual | Engineer | T08, T17, T18, T35 | FR-13 lulus pada relaunch/crash, rename file, dan perubahan tampilan; sumber berubah tidak menerima locator lama tanpa validasi |
 | Sebagian | T24 | Implementasikan bookmark dan navigasinya | Engineer | T17, T23 | FR-14 lulus pada dua format dan setelah reopen |
 | Sebagian | T25 | Tangani lifecycle, audio terputus, dan sumber berubah/hilang | Engineer | T20, T23, T34, T35 | FR-18/21 lulus; volume terlepas atau isi berubah saat play menyebabkan pause dan pemulihan yang jelas |
 
-**M3 dimulai pada build 0.5.0 (14).** Menu suara kini menyediakan bahasa per buku, daftar suara sistem sesuai bahasa, dan contoh suara; pilihan dipulihkan ketika buku dibuka lagi. Suara tersimpan yang hilang menghasilkan pesan tanpa fallback bahasa diam-diam. Antrean TTS bertahap memakai session token dan hanya mengirim satu ujaran pada satu waktu. T18/T19 tetap **Sebagian** sampai skenario audio panjang, pergantian cepat, perangkat tanpa suara, dan preview audio langsung diperiksa. Detail ada di [validasi M3](Docs/M3-validation.md).
+**M3 berlanjut pada build 0.5.1 (15).** Menu suara menyediakan bahasa per buku, daftar suara sistem sesuai bahasa, dan contoh suara; pilihan dipulihkan ketika buku dibuka lagi. Suara tersimpan yang hilang menghasilkan pesan tanpa fallback bahasa diam-diam. Antrean TTS bertahap memakai session token dan hanya mengirim satu ujaran pada satu waktu. T22 dinyatakan **Selesai** setelah uji UI PDF asli, PDF teks, dan EPUB menunjukkan scroll manual tidak menjeda audio dan tombol kembali memusatkan kalimat aktif. T18/T19 serta T20/T21/T23–T25 tetap **Sebagian** sampai skenario audio panjang, pergantian cepat, interupsi, perangkat tanpa suara, dan pemulihan langsung diperiksa. Detail ada di [validasi M3](Docs/M3-validation.md).
 
 ### Milestone 4 — verifikasi dan beta
 

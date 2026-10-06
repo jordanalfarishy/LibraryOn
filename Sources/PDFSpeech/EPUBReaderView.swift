@@ -42,6 +42,7 @@ struct EPUBAppearance: Equatable {
     var loadingPhase = "Menyiapkan EPUB…"
     var player = SpeechPlayer()
     var currentCFI = ""
+    var followReading = true
     var toc: [EPUBTOCEntry] = []
 
     @ObservationIgnored weak var webView: WKWebView?
@@ -76,7 +77,7 @@ struct EPUBAppearance: Equatable {
                 guard let self else { return }
                 store.saveEPUB(book.id, chapter: incoming, sentence: index)
                 if let paragraph = segment.paragraph, let range = segment.range {
-                    let javascript = "pdfSpeechHighlight(\(paragraph),\(range.location),\(range.length))"
+                    let javascript = "pdfSpeechHighlight(\(paragraph),\(range.location),\(range.length),\(self.followReading))"
                     self.webView?.evaluateJavaScript(javascript)
                 }
             }
@@ -94,6 +95,8 @@ struct EPUBAppearance: Equatable {
             chapter = payload["index"] as? Int ?? chapter
             store.saveEPUB(book.id, cfi: currentCFI, chapter: chapter,
                            chapterCount: payload["chapterCount"] as? Int)
+        case "manualScroll":
+            followReading = false
         case "startAtParagraph":
             let paragraph = payload["paragraph"] as? Int ?? 0
             if let index = player.segments.firstIndex(where: { $0.paragraph == paragraph }) {
@@ -120,6 +123,20 @@ struct EPUBAppearance: Equatable {
     func nextChapter() {
         player.stop()
         webView?.evaluateJavaScript("pdfSpeechNext()")
+    }
+
+    func returnToReading() {
+        followReading = true
+        guard let segment = player.segments[safe: player.currentIndex],
+              let paragraph = segment.paragraph, let range = segment.range else { return }
+        webView?.evaluateJavaScript(
+            "pdfSpeechReturnToReading(\(paragraph),\(range.location),\(range.length))") { [weak self] value, error in
+                Task { @MainActor [weak self] in
+                    if error != nil || value as? Bool != true {
+                        self?.player.error = "Kalimat aktif belum dapat ditemukan pada halaman EPUB ini."
+                    }
+                }
+            }
     }
 
     func playFromSelection() {
@@ -199,6 +216,7 @@ private struct EPUBCanvas: NSViewRepresentable {
         view.navigationDelegate = context.coordinator
         view.setValue(false, forKey: "drawsBackground")
         session.attach(view)
+        context.coordinator.monitorManualNavigation(in: view, session: session)
         var components = URLComponents(string: "book://reader/reader.html")!
         components.queryItems = appearance.queryItems
         if !initialCFI.isEmpty {
@@ -224,6 +242,7 @@ private struct EPUBCanvas: NSViewRepresentable {
 
     static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
         coordinator.watchdog?.cancel()
+        coordinator.stopMonitoringManualNavigation()
         view.stopLoading()
         view.configuration.userContentController.removeScriptMessageHandler(forName: "reader")
         view.navigationDelegate = nil
@@ -234,12 +253,35 @@ private struct EPUBCanvas: NSViewRepresentable {
         let onLink: @MainActor (String) -> Void
         var appearance: EPUBAppearance
         var watchdog: Task<Void, Never>?
+        var navigationMonitor: Any?
         init(onMessage: @escaping @MainActor ([String: Any]) -> Void,
              onLink: @escaping @MainActor (String) -> Void,
              appearance: EPUBAppearance) {
             self.onMessage = onMessage
             self.onLink = onLink
             self.appearance = appearance
+        }
+
+        func monitorManualNavigation(in view: WKWebView, session: EPUBSession) {
+            navigationMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.scrollWheel, .leftMouseDragged, .keyDown]
+            ) { [weak view, weak session] event in
+                guard let view, let window = view.window,
+                      event.window === window,
+                      view.bounds.contains(view.convert(event.locationInWindow, from: nil))
+                else { return event }
+                if event.type == .keyDown {
+                    let keys: Set<UInt16> = [49, 115, 116, 119, 121, 123, 124, 125, 126]
+                    guard keys.contains(event.keyCode) else { return event }
+                }
+                Task { @MainActor [weak session] in session?.followReading = false }
+                return event
+            }
+        }
+
+        func stopMonitoringManualNavigation() {
+            if let navigationMonitor { NSEvent.removeMonitor(navigationMonitor) }
+            navigationMonitor = nil
         }
 
         func userContentController(_ userContentController: WKUserContentController,
@@ -439,6 +481,15 @@ struct EPUBReaderView: View {
             Text("Bab \(session.chapter + 1)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
+            if !session.followReading &&
+                (session.player.isPlaying || session.player.isPaused) &&
+                !session.player.segments.isEmpty {
+                Button { session.returnToReading() } label: {
+                    Image(systemName: "scope")
+                }
+                .help("Kembali ke bacaan dan ikuti kalimat aktif")
+                .accessibilityLabel("Kembali ke Bacaan")
+            }
             Button { session.nextChapter() } label: {
                 Image(systemName: "chevron.right")
             }

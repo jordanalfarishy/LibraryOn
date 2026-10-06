@@ -20,6 +20,19 @@
   <script>
     const post = data => window.webkit.messageHandlers.reader.postMessage(data);
     let book, rendition, currentDocument, blocks = [];
+    let speechStarted = false, manualScrollReported = false, suppressScrollUntil = 0;
+    function reportManualScroll(force = false) {
+      if (!speechStarted || manualScrollReported ||
+          (!force && performance.now() < suppressScrollUntil)) return;
+      manualScrollReported = true;
+      post({kind:'manualScroll'});
+    }
+    const navigationKeys = ['PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'Home', 'End', ' '];
+    window.addEventListener('wheel', () => reportManualScroll(true), {passive:true});
+    window.addEventListener('touchmove', () => reportManualScroll(true), {passive:true});
+    window.addEventListener('keydown', event => {
+      if (navigationKeys.includes(event.key)) reportManualScroll(true);
+    });
     const params = new URLSearchParams(location.search);
     const initialCFI = params.get('cfi') || undefined;
     const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
@@ -106,6 +119,15 @@
         const el = event.target.closest('[data-pdf-speech-index]');
         if (el) post({kind:'startAtParagraph', paragraph:Number(el.dataset.pdfSpeechIndex)});
       });
+      // Only input from the reader suspends following. Programmatic scrolling
+      // from a new spoken sentence must not trigger this message.
+      doc.addEventListener('wheel', () => reportManualScroll(true), {passive:true});
+      doc.addEventListener('touchmove', () => reportManualScroll(true), {passive:true});
+      doc.addEventListener('keydown', event => {
+        if (navigationKeys.includes(event.key)) reportManualScroll(true);
+      });
+      // A scrollbar drag may change scroll position without a wheel or key event.
+      doc.addEventListener('scroll', () => reportManualScroll(), true);
       doc.body.addEventListener('click', event => {
         const anchor = event.target.closest('a[href]');
         if (!anchor) return;
@@ -132,8 +154,24 @@
       }
     }
 
-    window.pdfSpeechHighlight = (paragraph, offset, length) => {
-      if (!currentDocument || !blocks[paragraph]) return;
+    function centerSpeechElement(element, instant = false) {
+      const options = {block:'center', behavior:instant ? 'instant' : 'smooth'};
+      element.scrollIntoView(options);
+      // epub.js often scrolls its outer stage while the chapter itself lives
+      // in an expanded iframe. WebKit may not propagate scrollIntoView across it.
+      const container = rendition?.manager?.container;
+      const frame = currentDocument?.defaultView?.frameElement;
+      if (!container || !frame || container.scrollHeight <= container.clientHeight) return;
+      const elementRect = element.getBoundingClientRect();
+      const target = container.scrollTop + frame.getBoundingClientRect().top +
+        elementRect.top - container.getBoundingClientRect().top -
+        (container.clientHeight - elementRect.height) / 2;
+      container.scrollTo({top:Math.max(0, target), behavior:options.behavior});
+    }
+
+    window.pdfSpeechHighlight = (paragraph, offset, length, follow = true) => {
+      if (!currentDocument || !blocks[paragraph]) return false;
+      speechStarted = true;
       const element = blocks[paragraph];
       const walker = currentDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
       let node, cursor = 0, startNode, endNode, startOffset = 0, endOffset = 0;
@@ -144,7 +182,7 @@
         if (startNode && end <= next) { endNode = node; endOffset = Math.max(0, end - cursor); break; }
         cursor = next;
       }
-      if (!startNode || !endNode) return;
+      if (!startNode || !endNode) return false;
       const range = currentDocument.createRange();
       range.setStart(startNode, startOffset);
       range.setEnd(endNode, endOffset);
@@ -155,7 +193,18 @@
         const selection = currentDocument.getSelection();
         selection.removeAllRanges(); selection.addRange(range);
       }
-      element.scrollIntoView({block:'center', behavior:'smooth'});
+      if (follow) {
+        suppressScrollUntil = performance.now() + 1500;
+        centerSpeechElement(element);
+      }
+      return true;
+    };
+    window.pdfSpeechReturnToReading = (paragraph, offset, length) => {
+      manualScrollReported = false;
+      if (!window.pdfSpeechHighlight(paragraph, offset, length, false)) return false;
+      suppressScrollUntil = performance.now() + 1500;
+      centerSpeechElement(blocks[paragraph], true);
+      return true;
     };
     function adjacentChapter(direction) {
       const items = book.spine?.spineItems || [];

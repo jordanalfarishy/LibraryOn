@@ -1,6 +1,6 @@
 # LibraryOn
 
-Aplikasi macOS untuk menjelajahi folder PDF/EPUB dan mendengarkannya dengan suara sistem. Build lokal saat ini **0.5.0 (14)**.
+Aplikasi macOS untuk menjelajahi folder PDF/EPUB dan mendengarkannya dengan suara sistem. Build lokal saat ini **0.5.1 (15)**.
 
 ## Menjalankan
 
@@ -28,6 +28,7 @@ Build mengambil ikon terbaru dari `AppIcon/Icons-iOS-Default-1024@1x.png` dan `I
 - PDF dengan tampilan asli atau teks, TTS suara macOS, sorotan kalimat, dan progres. Ekstraksi teks berjalan di latar belakang; teks serta antrean TTS tersedia bertahap dan disimpan dalam cache berversi. Halaman tanpa teks ditandai dan tidak dilompati otomatis. Tampilan teks bisa diseleksi untuk menyalin, memulai bacaan per kalimat, atau kembali ke posisi kalimat pada PDF.
 - EPUB 2/3 reflowable tampil pada build sandbox dengan daftar isi, navigasi bab, CFI, dan TTS per bab. Pemetaan teks per bab disimpan dalam cache berversi. Konten HTTP/HTTPS dari buku diblokir; EPUB dengan skrip/interaksi aktif ditolak dengan pesan yang jelas. [Validasi M0](Docs/M0-validation.md) dan [M2](Docs/M2-validation.md) merinci pengujian dan batasnya.
 - Bar bawah memuat navigasi halaman/bab di kiri, pemutar suara di tengah, serta slider kecepatan dan pilihan suara di kanan. Bahasa dan suara dapat dipilih per buku; menu suara menyediakan contoh singkat. Seleksi teks di PDF atau EPUB lalu tekan Putar untuk membaca dari awal seleksi dan meneruskan isi berikutnya.
+- Scroll manual pada PDF asli, PDF teks, atau EPUB menghentikan ikuti bacaan otomatis tanpa menjeda suara. Tombol **Kembali ke Bacaan** di kiri bawah memusatkan kalimat aktif dan mengaktifkan ikuti bacaan lagi.
 - Pada tampilan asli PDF, pilih Muat Halaman, Muat Lebar, Muat Tinggi, 50–200%, atau 100% dari menu tampilan di kiri bawah. Panah atas/bawah berpindah ke halaman sebelumnya/berikutnya.
 - Pada macOS 15 atau lebih baru, tombol gelembung bahasa di Reader PDF membuka **Terjemahan manga**. Aplikasi mengenali teks pada halaman aktif, menerjemahkan Jepang ke Indonesia atau Inggris memakai model bahasa macOS, lalu menampilkan hasil di panel samping dan sebagai overlay sementara pada halaman gambar maupun PDF ber-layer teks. Tombol **Asli/Terjemahan** membandingkan hasil tanpa mengubah PDF. Model bahasa mungkin perlu diunduh sekali melalui persetujuan sistem; status persiapannya tetap terlihat di bawah jendela setelah panel ditutup. Status ini berupa indikator aktivitas, karena Translation framework tidak menyediakan persentase unduhan bagi aplikasi. Setelah model tersedia, teks halaman diproses di perangkat.
 - Menu data di Library menyediakan **Bersihkan Cache** untuk data yang dapat dibuat ulang dan **Reset Progres dan Penanda** sebagai tindakan terpisah dengan konfirmasi. EPUB menyediakan pilihan ukuran font, spasi baris, serta tema.

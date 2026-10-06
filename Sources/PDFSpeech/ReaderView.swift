@@ -168,6 +168,10 @@ private struct PDFOutlineEntry: Identifiable {
 
 private final class PDFCanvasView: PDFView {
     var programmaticSelectionKey: String?
+    var onManualNavigation: (() -> Void)?
+    private weak var observedScrollView: NSScrollView?
+    private var liveScrollObserver: NSObjectProtocol?
+    private var boundsObserver: NSObjectProtocol?
     var zoomMode: PDFZoomMode = .fitPage {
         didSet { applyZoom() }
     }
@@ -181,18 +185,58 @@ private final class PDFCanvasView: PDFView {
         let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
         if modifiers.isEmpty {
             switch event.keyCode {
-            case 126: goToPreviousPage(nil); return
-            case 125: goToNextPage(nil); return
+            case 126: onManualNavigation?(); goToPreviousPage(nil); return
+            case 125: onManualNavigation?(); goToNextPage(nil); return
             default: break
             }
         }
         super.keyDown(with: event)
     }
 
+    override func scrollWheel(with event: NSEvent) {
+        onManualNavigation?()
+        super.scrollWheel(with: event)
+    }
+
     override func layout() {
         super.layout()
+        connectScrollObservation()
         applyZoom()
     }
+
+    private func connectScrollObservation() {
+        if observedScrollView?.superview != nil { return }
+        guard let scrollView = descendants(of: self).compactMap({ $0 as? NSScrollView }).first,
+              scrollView !== observedScrollView else { return }
+        disconnectScrollObservation()
+        observedScrollView = scrollView
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        liveScrollObserver = NotificationCenter.default.addObserver(
+            forName: NSScrollView.willStartLiveScrollNotification,
+            object: scrollView, queue: .main
+        ) { [weak self] _ in self?.onManualNavigation?() }
+        boundsObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView, queue: .main
+        ) { [weak self] _ in
+            guard let type = NSApp.currentEvent?.type,
+                  type == .scrollWheel || type == .leftMouseDragged else { return }
+            self?.onManualNavigation?()
+        }
+    }
+
+    private func descendants(of view: NSView) -> [NSView] {
+        view.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+
+    private func disconnectScrollObservation() {
+        if let liveScrollObserver { NotificationCenter.default.removeObserver(liveScrollObserver) }
+        if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
+        liveScrollObserver = nil
+        boundsObserver = nil
+    }
+
+    deinit { disconnectScrollObservation() }
 
     func applyZoom() {
         guard !applyingZoom, let page = currentPage,
@@ -249,10 +293,12 @@ private final class PDFCanvasView: PDFView {
 private struct PDFCanvas: NSViewRepresentable {
     let document: PDFDocument
     let segment: SpokenSegment?
+    let followReading: Bool
     let zoomMode: PDFZoomMode
     let translations: [MangaOverlayBlock]
     @Binding var pageIndex: Int
     @Binding var selectedPosition: PDFTextPosition?
+    let onManualNavigation: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -264,13 +310,20 @@ private struct PDFCanvas: NSViewRepresentable {
         view.minScaleFactor = 0.1
         view.maxScaleFactor = 8
         view.document = document
+        view.onManualNavigation = onManualNavigation
         view.zoomMode = zoomMode
+        let coordinator = context.coordinator
         context.coordinator.pageObserver = NotificationCenter.default.addObserver(
             forName: Notification.Name.PDFViewPageChanged, object: view, queue: .main
         ) { [weak view] _ in
             guard let view, let page = view.currentPage,
                   let index = view.document?.index(for: page) else { return }
-            DispatchQueue.main.async { pageIndex = index }
+            DispatchQueue.main.async {
+                if index != coordinator.expectedPageIndex {
+                    view.onManualNavigation?()
+                }
+                pageIndex = index
+            }
         }
         context.coordinator.selectionObserver = NotificationCenter.default.addObserver(
             forName: Notification.Name.PDFViewSelectionChanged, object: view, queue: .main
@@ -288,6 +341,7 @@ private struct PDFCanvas: NSViewRepresentable {
                   key != view.programmaticSelectionKey else { return }
             view.programmaticSelectionKey = nil
             DispatchQueue.main.async {
+                view.onManualNavigation?()
                 pageIndex = pageNumber
                 selectedPosition = PDFTextPosition(page: pageNumber, offset: range.location)
             }
@@ -296,6 +350,8 @@ private struct PDFCanvas: NSViewRepresentable {
     }
 
     func updateNSView(_ view: PDFCanvasView, context: Context) {
+        view.onManualNavigation = onManualNavigation
+        context.coordinator.expectedPageIndex = pageIndex
         if view.document !== document {
             view.showTranslations([])
             view.document = document
@@ -315,13 +371,18 @@ private struct PDFCanvas: NSViewRepresentable {
             return
         }
         let key = "\(segment.page):\(range.location):\(range.length)"
-        guard context.coordinator.lastHighlightKey != key else { return }
+        let wasFollowing = context.coordinator.lastFollowReading
+        context.coordinator.lastFollowReading = followReading
+        guard context.coordinator.lastHighlightKey != key ||
+              (followReading && !wasFollowing) else { return }
         context.coordinator.lastHighlightKey = key
         view.programmaticSelectionKey = key
         selection.color = AppTheme.accentNSColor
-        view.setCurrentSelection(selection, animate: true)
-        view.go(to: selection)
-        view.applyZoom()
+        view.setCurrentSelection(selection, animate: followReading)
+        if followReading {
+            view.go(to: selection)
+            view.applyZoom()
+        }
     }
 
     static func dismantleNSView(_ view: PDFCanvasView, coordinator: Coordinator) {
@@ -338,6 +399,8 @@ private struct PDFCanvas: NSViewRepresentable {
         var pageObserver: NSObjectProtocol?
         var selectionObserver: NSObjectProtocol?
         var lastHighlightKey: String?
+        var lastFollowReading = true
+        var expectedPageIndex = 0
     }
 }
 
@@ -355,6 +418,8 @@ struct PDFReaderView: View {
     @State private var pendingUnreadablePage: Int?
     @State private var acknowledgedLeadingGap = false
     @State private var showText = false
+    @State private var followReading = true
+    @State private var returnToReadingRequest = 0
     @State private var mangaEnabled = false
     @State private var mangaOverlay: [MangaOverlayBlock] = []
     @State private var pageIndex = 0
@@ -440,10 +505,12 @@ struct PDFReaderView: View {
                         PDFCanvas(document: document,
                                   segment: previewSegment ?? ((player.isPlaying || player.isPaused)
                                     ? player.segments[safe: player.currentIndex] : nil),
+                                  followReading: followReading,
                                   zoomMode: zoomMode,
                                   translations: mangaEnabled ? mangaOverlay : [],
                                   pageIndex: $pageIndex,
-                                  selectedPosition: $selectedPosition)
+                                  selectedPosition: $selectedPosition,
+                                  onManualNavigation: { followReading = false })
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                         if #available(macOS 15.0, *), mangaEnabled {
                             Divider()
@@ -525,7 +592,7 @@ struct PDFReaderView: View {
 
     private var pageControls: some View {
         HStack(spacing: 8) {
-            Button { pageIndex = max(0, pageIndex - 1) } label: {
+            Button { followReading = false; pageIndex = max(0, pageIndex - 1) } label: {
                 Image(systemName: "arrow.up")
             }
             .keyboardShortcut(.upArrow, modifiers: [])
@@ -534,7 +601,7 @@ struct PDFReaderView: View {
             Text("\(min(pageIndex + 1, document?.pageCount ?? 0)) / \(document?.pageCount ?? 0)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
-            Button { pageIndex = min((document?.pageCount ?? 1) - 1, pageIndex + 1) } label: {
+            Button { followReading = false; pageIndex = min((document?.pageCount ?? 1) - 1, pageIndex + 1) } label: {
                 Image(systemName: "arrow.down")
             }
             .keyboardShortcut(.downArrow, modifiers: [])
@@ -558,6 +625,16 @@ struct PDFReaderView: View {
                       systemImage: "arrow.up.left.and.arrow.down.right")
             }
             .disabled(document == nil)
+            if !followReading && (player.isPlaying || player.isPaused) && !player.segments.isEmpty {
+                Button {
+                    followReading = true
+                    returnToReadingRequest += 1
+                    pageIndex = player.segments[player.currentIndex].page
+                } label: {
+                    Label("Kembali ke Bacaan", systemImage: "scope")
+                }
+                .help("Pusatkan kalimat yang sedang dibaca dan ikuti bacaan lagi")
+            }
         }
     }
 
@@ -610,9 +687,17 @@ struct PDFReaderView: View {
                 .padding(.horizontal, 32)
                 .padding(.vertical, 26)
                 .frame(maxWidth: .infinity)
+                .background(ManualScrollObserver { followReading = false }
+                    .frame(width: 0, height: 0))
             }
             .onChange(of: player.currentIndex) { _, newIndex in
+                guard followReading else { return }
                 withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(newIndex, anchor: .center) }
+            }
+            .onChange(of: returnToReadingRequest) { _, _ in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(player.currentIndex, anchor: .center)
+                }
             }
         }
     }
@@ -637,7 +722,7 @@ struct PDFReaderView: View {
         pendingRestoreIndex = library.progressStore.value(for: book.id)?.sentenceIndex ?? 0
         player.onSegmentChange = { [store = library.progressStore, id = book.id] index, segment in
             store.savePDFAudio(id, sentence: index)
-            pageIndex = segment.page
+            if followReading { pageIndex = segment.page }
             previewSegment = nil
         }
         player.onFinish = { [store = library.progressStore, id = book.id] in
@@ -765,6 +850,53 @@ struct PDFReaderView: View {
         player.setSegments(start.segments, startAt: start.index,
                            isComplete: !preparingText)
         player.play()
+    }
+}
+
+private struct ManualScrollObserver: NSViewRepresentable {
+    let onManualScroll: @MainActor () -> Void
+
+    func makeNSView(context: Context) -> ObservingView {
+        let view = ObservingView()
+        view.onManualScroll = onManualScroll
+        return view
+    }
+
+    func updateNSView(_ view: ObservingView, context: Context) {
+        view.onManualScroll = onManualScroll
+        view.connect()
+    }
+
+    final class ObservingView: NSView {
+        var onManualScroll: (@MainActor () -> Void)?
+        private weak var scrollView: NSScrollView?
+        private var observer: NSObjectProtocol?
+
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            connect()
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            connect()
+        }
+
+        func connect() {
+            guard let found = enclosingScrollView, found !== scrollView else { return }
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            scrollView = found
+            observer = NotificationCenter.default.addObserver(
+                forName: NSScrollView.willStartLiveScrollNotification,
+                object: found, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.onManualScroll?() }
+            }
+        }
+
+        deinit {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+        }
     }
 }
 
