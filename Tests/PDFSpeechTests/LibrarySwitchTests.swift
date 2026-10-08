@@ -51,7 +51,7 @@ import XCTest
         XCTAssertEqual(library.roots.count, 1)
     }
 
-    func testMissingBookCanRelinkProgressAndBookmarksToReplacement() async throws {
+    func testMissingBookRelinkRejectsOldLocationWhenReplacementContentDiffers() async throws {
         let base = FileManager.default.temporaryDirectory
             .appendingPathComponent("libraryon-file-relink-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -89,8 +89,9 @@ import XCTest
         let replacement = try XCTUnwrap(library.books.first { $0.relativePath == "Baru.pdf" })
         XCTAssertNotEqual(replacement.id, oldBook.id)
         XCTAssertNil(store.value(for: oldBook.id))
-        XCTAssertEqual(store.value(for: replacement.id)?.pdfPage, 29)
+        XCTAssertEqual(store.value(for: replacement.id)?.pdfPage, 0)
         XCTAssertEqual(store.bookmarks(for: replacement.id).first?.title, "Halaman 30")
+        XCTAssertEqual(store.bookmarks(for: replacement.id).first?.needsReview, true)
         XCTAssertFalse(library.unavailableBookIDs.contains(replacement.id))
     }
 
@@ -130,6 +131,58 @@ import XCTest
         XCTAssertNil(library.pendingChangedBook)
         XCTAssertEqual(store.value(for: old.id)?.pdfPage, 0)
         XCTAssertEqual(store.bookmarks(for: old.id).first?.title, "Halaman 16")
+        XCTAssertEqual(store.bookmarks(for: old.id).first?.needsReview, true)
+    }
+
+    func testActiveReaderStopsWhenSourceDisappearsOrChanges() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("libraryon-active-source-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("Buku.pdf")
+        try Data("original".utf8).write(to: url)
+        let suiteName = "libraryon-active-source-\(UUID().uuidString)"
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { preferences.removePersistentDomain(forName: suiteName) }
+        let store = ProgressStore(inMemory: true)
+        let library = LibraryModel(preferences: preferences, progressStore: store,
+                                   rootResolver: { record in
+            (URL(fileURLWithPath: String(decoding: record.bookmark, as: UTF8.self)), false)
+        }, bookmarkCreator: { Data($0.path.utf8) },
+           indexStore: LibraryIndexStore(inMemory: true))
+        XCTAssertTrue(library.addRoot(root))
+        try await waitForScan(library)
+        let book = try XCTUnwrap(library.books.first)
+        store.savePDFAudio(book.id, sentence: 8)
+        library.open(book)
+        XCTAssertTrue(library.isReaderOpen)
+
+        try Data("changed content".utf8).write(to: url)
+        library.scan()
+        try await waitForScan(library)
+        XCTAssertFalse(library.isReaderOpen)
+        XCTAssertNil(library.activeBook)
+        XCTAssertTrue(library.changedBookIDs.contains(book.id))
+        XCTAssertEqual(store.value(for: book.id)?.sentenceIndex, 8)
+        library.scan()
+        try await waitForScan(library)
+        XCTAssertTrue(library.scanError?.contains("Tinjau buku") == true)
+
+        let changed = try XCTUnwrap(library.books.first { $0.id == book.id })
+        library.open(changed)
+        XCTAssertFalse(library.isReaderOpen)
+        XCTAssertNotNil(library.pendingChangedBook)
+        library.confirmOpenChangedBook()
+        XCTAssertTrue(library.isReaderOpen)
+        try FileManager.default.removeItem(at: url)
+        library.scan()
+        try await waitForScan(library)
+        XCTAssertFalse(library.isReaderOpen)
+        XCTAssertTrue(library.unavailableBookIDs.contains(book.id))
+        XCTAssertEqual(store.value(for: book.id)?.sentenceIndex, 0)
+        library.scan()
+        try await waitForScan(library)
+        XCTAssertTrue(library.scanError?.contains("Temukan buku") == true)
     }
 
     func testCachedLibraryAndBrowserStateRestoreWhileRootIsOffline() async throws {

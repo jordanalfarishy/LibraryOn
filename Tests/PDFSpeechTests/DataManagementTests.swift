@@ -18,8 +18,10 @@ import XCTest
         let store = ProgressStore(inMemory: true)
         store.savePDFView("book", page: 12)
         store.addBookmark("book", title: "Halaman 12", pdfPage: 12)
+        XCTAssertEqual(try CacheMaintenance.size(in: directory), 33)
 
         try CacheMaintenance.clear(in: directory)
+        XCTAssertEqual(try CacheMaintenance.size(in: directory), 0)
 
         for name in CacheMaintenance.rebuildableFolders {
             XCTAssertFalse(FileManager.default.fileExists(
@@ -38,5 +40,26 @@ import XCTest
         XCTAssertTrue(store.resetAll())
         XCTAssertNil(store.value(for: "book"))
         XCTAssertTrue(store.bookmarks(for: "book").isEmpty)
+    }
+
+    func testOpeningUnreadablePDFDoesNotInventReadingProgress() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("libraryon-invalid-pdf-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let file = root.appendingPathComponent("Rusak.pdf")
+        try Data("not a PDF".utf8).write(to: file)
+        let book = try XCTUnwrap(FolderScanner.book(at: file, root: root, rootID: UUID()))
+        let suite = "libraryon-invalid-pdf-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ProgressStore(inMemory: true)
+        let library = LibraryModel(preferences: defaults, progressStore: store,
+                                   indexStore: LibraryIndexStore(inMemory: true))
+
+        library.open(book)
+
+        XCTAssertTrue(library.isReaderOpen)
+        XCTAssertNil(store.value(for: book.id))
     }
 }

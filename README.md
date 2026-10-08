@@ -1,44 +1,60 @@
 # LibraryOn
 
-Aplikasi macOS untuk menjelajahi folder PDF/EPUB dan mendengarkannya dengan suara sistem. Build lokal saat ini **0.5.2 (16)**.
+LibraryOn is a native macOS app for browsing folders of PDF and EPUB books, reading them, and listening with installed system voices. Books stay in their original folders; the app stores its index, reading positions, bookmarks, and rebuildable cache locally.
 
-## Menjalankan
+_Bahasa Indonesia: LibraryOn membantu menjelajahi folder PDF/EPUB, membaca, dan mendengarkan buku dengan suara sistem. File buku tetap di folder asal. [PRD berbahasa Indonesia](PRD.md) memuat rancangan dan status lengkap._
 
-Prasyarat: macOS 14 atau lebih baru, Xcode, dan Apple Silicon.
+## Project status
+
+This repository contains a **prototype**, currently version **0.5.2 (16)**. The M0–M3 implementation gates have passed; [M4 beta verification](Docs/M4-validation.md) remains open. The local app build uses an ad-hoc signature. There is no notarized release or verified clean-Mac installer yet.
+
+## Requirements and build
+
+- macOS 14 or later on Apple Silicon; Xcode with a Swift 6 toolchain.
+- A local, DRM-free, reflowable EPUB or text-based PDF for the main reading flow.
 
 ```bash
+git clone https://github.com/jordanalfarishy/LibraryOn.git
+cd LibraryOn
 bash Scripts/build-app.sh
-open "dist/LibraryOn.app"
+open dist/LibraryOn.app
 ```
 
-Saat pertama kali dibuka, pilih folder yang berisi PDF atau EPUB. Aplikasi mengingat folder tersebut. Buku tetap berada di lokasi asal; data progres dan cache berada di container aplikasi.
+The build uses vendored dependencies and creates `dist/LibraryOn.app`. Reopen the app after rebuilding. The generated `dist/` and `.build/` directories are ignored by Git. Run the test suite with `swift test` on macOS. The optional 1,000-book/FSEvents benchmark is documented in [M4 validation](Docs/M4-validation.md).
 
-Build mengambil ikon terbaru dari `AppIcon/Icons-iOS-Default-1024@1x.png` dan `Icons-iOS-Dark-1024@1x.png` untuk varian terang/gelap, lalu memberi margin yang sesuai untuk ikon macOS. Build mendaftarkan ulang aplikasi agar ikon Dock/Finder diperbarui. Buka ulang aplikasi setelah build.
+## What works now
 
-## Cakupan build saat ini
+- Browse multiple library roots and subfolders; search titles, sort, and switch between grid and list views. The saved index appears while the folder is checked again in the background.
+- Read text-based PDFs in original or text view, and reflowable EPUB 2/3 books with chapters, contents, typography, and themes.
+- Listen using installed Indonesian or English system voices, with play/pause, sentence navigation, speed, voice preview, and per-book voice choices.
+- Resume visual and audio positions separately, follow the spoken sentence, and save bookmarks. Manual scrolling pauses auto-follow without pausing speech.
+- Choose **Interface language** in Settings independently of the book's TTS language. Indonesian, English, and Follow System are available; the interface changes immediately.
+- Recover from missing or changed book files by relinking or reviewing them. Cache clearing leaves books, progress, and bookmarks intact; a separate confirmed action resets reading data.
 
-- Penjelajah subfolder, grid/daftar, pencarian nama, folder terakhir, serta pembaruan saat folder berubah melalui Finder.
-- Folder pustaka dapat ditambahkan dengan memilih folder atau menyeretnya dari Finder ke jendela LibraryOn. Hasil pemindaian muncul per batch, sehingga pustaka besar mulai terlihat sebelum scan selesai.
-- Beberapa folder pustaka tetap terlihat di bagian atas panel samping; tiap folder mengingat posisi penjelajahnya sendiri. Panah atas/bawah memilih folder, panah kanan/kiri membuka dan menutup subfolder. Kartu buku memakai pratinjau halaman pertama yang disimpan di cache.
-- Klik tunggal memilih kartu buku; klik ganda, tombol **Buka buku terpilih**, atau Enter membukanya. Buku dapat diurutkan berdasarkan nama, terakhir dibaca, atau terakhir diubah.
-- Setiap buku menampilkan bar posisi baca di grid, daftar, dan kartu lanjutkan. PDF memakai halaman dari total halaman; EPUB memakai perkiraan berdasarkan bab dari total bagian spine. Buku yang belum dibuka menunjukkan bar kosong; buku lama menghitung total saat kartunya tampil.
-- Jika folder pustaka dipindah atau aksesnya hilang, **Pilih Ulang Folder** mengganti lokasi pada entri pustaka yang sama. Buku yang masih memiliki identitas file yang sama mempertahankan progres dan penanda; memilih folder yang sudah terdaftar sebagai pustaka lain ditolak.
-- Indeks pustaka disimpan lokal agar daftar buku dan subfolder langsung muncul saat aplikasi dibuka. Daftar lama ditandai sampai pemindaian ulang selesai. Buku yang hilang tetap ditampilkan agar progresnya bisa dihubungkan ke file pengganti; perubahan isi buku meminta konfirmasi sebelum posisi baca dimulai ulang.
-- Folder pustaka juga dapat diganti dari menu toolbar saat Reader terbuka; perpindahan memuat ulang tampilan Library untuk folder tujuan.
-- PDF dengan tampilan asli atau teks, TTS suara macOS, sorotan kalimat, dan progres. Ekstraksi teks berjalan di latar belakang; teks serta antrean TTS tersedia bertahap dan disimpan dalam cache berversi. Halaman tanpa teks ditandai dan tidak dilompati otomatis. Tampilan teks bisa diseleksi untuk menyalin, memulai bacaan per kalimat, atau kembali ke posisi kalimat pada PDF.
-- EPUB 2/3 reflowable tampil pada build sandbox dengan daftar isi, navigasi bab, CFI, dan TTS per bab. Pemetaan teks per bab disimpan dalam cache berversi. Konten HTTP/HTTPS dari buku diblokir; EPUB dengan skrip/interaksi aktif ditolak dengan pesan yang jelas. [Validasi M0](Docs/M0-validation.md) dan [M2](Docs/M2-validation.md) merinci pengujian dan batasnya.
-- Title bar Reader menampilkan nama buku. EPUB menempatkan navigasi bab, daftar isi, penanda, dan tipografi di sana; PDF menempatkan daftar isi, penanda, serta terjemahan manga di sana. Bar bawah memuat navigasi halaman/tampilan PDF di kiri, pemutar suara di tengah, serta slider kecepatan dan pilihan suara di kanan. Bahasa dan suara dapat dipilih per buku; menu suara menyediakan contoh singkat. Seleksi teks di PDF atau EPUB lalu tekan Putar untuk membaca dari awal seleksi dan meneruskan isi berikutnya.
-- Scroll manual pada PDF asli, PDF teks, atau EPUB menghentikan ikuti bacaan otomatis tanpa menjeda suara. Tombol **Kembali ke Bacaan** di kiri bawah memusatkan kalimat aktif dan mengaktifkan ikuti bacaan lagi.
-- Pada tampilan asli PDF, pilih Muat Halaman, Muat Lebar, Muat Tinggi, 50–200%, atau 100% dari menu tampilan di kiri bawah. Panah atas/bawah berpindah ke halaman sebelumnya/berikutnya.
-- Pada macOS 15 atau lebih baru, tombol gelembung bahasa di Reader PDF membuka **Terjemahan manga**. Aplikasi mengenali teks pada halaman aktif, menerjemahkan Jepang ke Indonesia atau Inggris memakai model bahasa macOS, lalu menampilkan hasil di panel samping dan sebagai overlay sementara pada halaman gambar maupun PDF ber-layer teks. Tombol **Asli/Terjemahan** membandingkan hasil tanpa mengubah PDF. Model bahasa mungkin perlu diunduh sekali melalui persetujuan sistem; status persiapannya tetap terlihat di bawah jendela setelah panel ditutup. Status ini berupa indikator aktivitas, karena Translation framework tidak menyediakan persentase unduhan bagi aplikasi. Setelah model tersedia, teks halaman diproses di perangkat.
-- Menu data di Library menyediakan **Bersihkan Cache** untuk data yang dapat dibuat ulang dan **Reset Progres dan Penanda** sebagai tindakan terpisah dengan konfirmasi. EPUB menyediakan pilihan ukuran font, spasi baris, serta tema.
-- Reader memulihkan halaman PDF atau lokasi EPUB terakhir tanpa langsung memutar audio. Di title bar, ikon Daftar Isi dan Penanda menyatukan navigasi, penambahan penanda, serta daftar penanda. Posisi visual PDF dan kalimat audio disimpan terpisah; bar bawah tidak menampilkan status kalimat yang berulang.
+The target-shaped **Return to Reading** control is icon-only in PDF and EPUB readers. Its tooltip and VoiceOver name remain available.
 
-Ini masih build prototipe. EPUB yang halaman pertamanya hanya berisi fitur yang tidak dapat dirender sebagai gambar atau teks memakai placeholder. Metadata penulis, OCR untuk TTS umum, pemrosesan PDF multi-kolom, pemulihan offset kata terpilih setelah relaunch, dan pengujian besar lintas format belum selesai sesuai [PRD](PRD.md). Terjemahan manga masih eksperimental: tulisan vertikal, furigana, dialog bergaya, halaman berotasi, dan ketepatan posisi overlay belum divalidasi pada corpus manga nyata. Hasil terjemahan tersimpan pada cache lokal hingga 20 halaman dan dapat dihapus oleh macOS saat membersihkan cache aplikasi. Build ini ditandatangani ad-hoc untuk pengujian lokal; distribusi ke perangkat lain memerlukan sertifikat pengembang dan notarization.
+| Shortcut | Action |
+| --- | --- |
+| Cmd+O | Choose a library folder |
+| Cmd+, | Open Settings |
+| Enter | Open the selected book |
+| Cmd+[ | Return to the library |
+| Space | Play or pause in Reader |
+| Option+← / Option+→ | Previous / next sentence |
+| ↑ / ↓ | Previous / next PDF page |
 
-Nama aplikasi di layar sekarang LibraryOn. Bundle ID `com.joalfa.pdfspeech` dan kunci data lama tetap dipakai agar pustaka, progres, dan penanda dari build sebelumnya tidak hilang. Dukungan daftar video dan membuka player default direncanakan setelah MVP; posisi video belum dapat dilacak otomatis ketika diputar di aplikasi lain.
+## Scope and limitations
 
-## Dependensi
+- Scanned/image-only PDFs need OCR for general TTS; multi-column reading order is not yet supported. Fixed-layout, interactive, scripted, and DRM-protected EPUBs are outside the current reader scope.
+- Manga translation on macOS 15+ is **experimental**: it processes the active PDF page locally and can show temporary overlays, but real manga layouts, model download, speed, and memory still need beta validation.
+- The core reader has no account, analytics, or document upload path. Remote HTTP/HTTPS content inside EPUBs is blocked. macOS may need to download a translation language model before its local translation feature is available.
+- The beta gate still needs broader device and document testing, a five-person usability/voice study, and Developer ID signing plus notarization. See [M4 validation](Docs/M4-validation.md) for evidence and remaining work.
 
-- [ZIPFoundation 0.9.20](https://github.com/weichsel/ZIPFoundation), source dan lisensi di `Vendor/ZIPFoundation`.
-- [epub.js 0.3.93](https://github.com/futurepress/epub.js), bundle dan lisensi di `Sources/PDFSpeech/Resources` serta `Licenses`.
+## Documentation and licenses
+
+- [Product requirements and milestone status (Indonesian)](PRD.md)
+- [M0](Docs/M0-validation.md), [M1](Docs/M1-validation.md), [M2](Docs/M2-validation.md), [M3](Docs/M3-validation.md), and [M4](Docs/M4-validation.md) validation notes
+- [Local beta package guide](Docs/M4-local-beta.md) and [five-person beta protocol](Docs/M4-beta-protocol.md)
+- Third-party notices: [ZIPFoundation (MIT)](Vendor/ZIPFoundation/LICENSE) and [epub.js (BSD 2-Clause)](Licenses/epubjs-BSD-2-Clause.txt). Both notices are also copied into built app bundles.
+
+The LibraryOn project itself does not yet have a top-level `LICENSE` file.

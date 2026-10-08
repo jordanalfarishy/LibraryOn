@@ -4,6 +4,11 @@ import SwiftUI
 @main
 struct PDFSpeechApp: App {
     @State private var library = LibraryModel()
+    @AppStorage("LibraryOn.uiLanguage") private var uiLanguage = "system"
+
+    private var interfaceLocale: Locale {
+        uiLanguage == "system" ? .autoupdatingCurrent : Locale(identifier: uiLanguage)
+    }
 
     var body: some Scene {
         WindowGroup("LibraryOn") {
@@ -14,6 +19,7 @@ struct PDFSpeechApp: App {
                     LibraryView().environment(library)
                 }
             }
+                .environment(\.locale, interfaceLocale)
                 .frame(minWidth: 880, minHeight: 580)
                 .background(AppWindowTitle(title: library.isReaderOpen
                                            ? library.activeBook?.title ?? "LibraryOn" : "LibraryOn"))
@@ -24,6 +30,10 @@ struct PDFSpeechApp: App {
                 Button("Buka Folder Buku…") { library.chooseFolder() }
                     .keyboardShortcut("o", modifiers: .command)
             }
+        }
+        Settings {
+            SettingsView(library: library)
+                .environment(\.locale, interfaceLocale)
         }
     }
 }

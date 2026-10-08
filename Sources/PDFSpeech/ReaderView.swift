@@ -21,6 +21,7 @@ struct ReaderView: View {
                 } label: {
                     Label("Kembali ke Pustaka", systemImage: "chevron.left")
                 }
+                .keyboardShortcut("[", modifiers: .command)
                 .help("Kembali ke folder buku")
             }
             ToolbarItem(placement: .primaryAction) {
@@ -50,6 +51,7 @@ struct ReaderView: View {
 struct PlayerControls<Leading: View>: View {
     @Bindable var player: SpeechPlayer
     var onPlay: (() -> Void)? = nil
+    var onPreferenceChange: (() -> Void)? = nil
     let leading: Leading
 
     var body: some View {
@@ -86,8 +88,10 @@ struct PlayerControls<Leading: View>: View {
     private var transport: some View {
         HStack(spacing: 15) {
             Button { player.previous() } label: { Image(systemName: "backward.end.fill") }
+                .keyboardShortcut(.leftArrow, modifiers: .option)
                 .disabled(player.segments.isEmpty)
                 .help("Kalimat sebelumnya")
+                .accessibilityLabel("Kalimat sebelumnya")
             Button {
                 if player.isPlaying { player.pause() }
                 else if let onPlay { onPlay() }
@@ -100,10 +104,14 @@ struct PlayerControls<Leading: View>: View {
             .tint(AppTheme.accent)
             .controlSize(.large)
             .disabled(player.segments.isEmpty)
+            .keyboardShortcut(.space, modifiers: [])
             .help(player.isPlaying ? "Jeda" : "Putar")
+            .accessibilityLabel(player.isPlaying ? "Jeda" : "Putar")
             Button { player.next() } label: { Image(systemName: "forward.end.fill") }
+                .keyboardShortcut(.rightArrow, modifiers: .option)
                 .disabled(player.segments.isEmpty)
                 .help("Kalimat berikutnya")
+                .accessibilityLabel("Kalimat berikutnya")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
@@ -129,11 +137,17 @@ struct PlayerControls<Leading: View>: View {
             .help("Geser ke kiri untuk lebih lambat, ke kanan untuk lebih cepat")
             Menu {
                 Menu("Bahasa Buku") {
-                    Button { player.changeLanguage("id-ID") } label: {
+                    Button {
+                        player.changeLanguage("id-ID")
+                        onPreferenceChange?()
+                    } label: {
                         Label("Indonesia", systemImage: player.preferredLanguage == "id-ID"
                               ? "checkmark" : "globe")
                     }
-                    Button { player.changeLanguage("en-US") } label: {
+                    Button {
+                        player.changeLanguage("en-US")
+                        onPreferenceChange?()
+                    } label: {
                         Label("English (US)", systemImage: player.preferredLanguage == "en-US"
                               ? "checkmark" : "globe")
                     }
@@ -144,7 +158,10 @@ struct PlayerControls<Leading: View>: View {
                     Text("Belum ada suara untuk bahasa ini")
                 }
                 ForEach(available, id: \.identifier) { voice in
-                    Button { player.changeVoice(voice.identifier) } label: {
+                    Button {
+                        player.changeVoice(voice.identifier)
+                        onPreferenceChange?()
+                    } label: {
                         Label(voice.name, systemImage: player.voiceIdentifier == voice.identifier
                               ? "checkmark" : "waveform")
                     }
@@ -421,6 +438,7 @@ private struct PDFCanvas: NSViewRepresentable {
 
 struct PDFReaderView: View {
     @Environment(LibraryModel.self) private var library
+    @Environment(\.locale) private var locale
     let book: BookFile
     @State private var player = SpeechPlayer()
     @State private var document: PDFDocument?
@@ -470,8 +488,11 @@ struct PDFReaderView: View {
                     }
                 }
             } else if let loadError {
-                ContentUnavailableView("PDF tidak dapat dibuka", systemImage: "doc.badge.xmark",
-                                       description: Text(loadError))
+                VStack(spacing: 12) {
+                    ContentUnavailableView("PDF tidak dapat dibuka", systemImage: "doc.badge.xmark",
+                                           description: Text(InterfaceLocalization.string(loadError, locale: locale)))
+                    Button("Coba Lagi") { retryLoad() }
+                }
             } else {
                 ProgressView("Menyiapkan buku…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -480,9 +501,19 @@ struct PDFReaderView: View {
             Divider()
             if preparingText && document != nil {
                 if let preparationError {
-                    Text(preparationError).font(.caption).foregroundStyle(.orange).padding(.top, 6)
+                    HStack {
+                        Text(InterfaceLocalization.string(preparationError, locale: locale))
+                            .font(.caption).foregroundStyle(.orange)
+                        Button("Coba Lagi") {
+                            self.preparationError = nil
+                            Task { await prepareText() }
+                        }
+                    }
+                    .padding(.top, 6)
                 } else {
-                    ProgressView("Menyiapkan teks PDF… \(readingDocument?.sections.count ?? 0)/\(document?.pageCount ?? 0) halaman")
+                    ProgressView(String(format: InterfaceLocalization.string(
+                        "Menyiapkan teks PDF… %d/%d halaman", locale: locale),
+                        readingDocument?.sections.count ?? 0, document?.pageCount ?? 0))
                         .controlSize(.small).padding(.top, 6)
                 }
             }
@@ -492,7 +523,9 @@ struct PDFReaderView: View {
             }
             if let pendingUnreadablePage {
                 HStack {
-                    Text("Halaman \(pendingUnreadablePage + 1) tidak memiliki teks; bacaan dijeda.")
+                    Text(String(format: InterfaceLocalization.string(
+                        "Halaman %d tidak memiliki teks; bacaan dijeda.", locale: locale),
+                        pendingUnreadablePage + 1))
                         .font(.caption).foregroundStyle(.orange)
                     Button("Lewati halaman") {
                         acknowledgedLeadingGap = true
@@ -512,9 +545,11 @@ struct PDFReaderView: View {
                 .padding(.top, 6)
             }
             if let error = player.error {
-                Text(error).font(.caption).foregroundStyle(.orange).padding(.top, 6)
+                Text(InterfaceLocalization.string(error, locale: locale))
+                    .font(.caption).foregroundStyle(.orange).padding(.top, 6)
             }
             PlayerControls(player: player, onPlay: playFromSelection,
+                           onPreferenceChange: saveSpeechPreference,
                            leading: pageControls)
         }
         .toolbar {
@@ -544,6 +579,10 @@ struct PDFReaderView: View {
                         ForEach(bookmarks) { bookmark in
                             Menu(bookmark.title) {
                                 Button("Buka") { pageIndex = bookmark.pdfPage }
+                                    .disabled(bookmark.needsReview)
+                                if bookmark.needsReview {
+                                    Text("Posisi lama perlu ditinjau karena isi buku berubah")
+                                }
                                 Button("Hapus", role: .destructive) {
                                     library.progressStore.removeBookmark(bookmark.id, bookID: book.id)
                                     bookmarks = library.progressStore.bookmarks(for: book.id)
@@ -578,8 +617,6 @@ struct PDFReaderView: View {
             player.preferredLanguage = preference.language
             player.voiceIdentifier = preference.voiceIdentifier
         }
-        .onChange(of: player.preferredLanguage) { _, _ in saveSpeechPreference() }
-        .onChange(of: player.voiceIdentifier) { _, _ in saveSpeechPreference() }
         .task { await prepareText() }
         .onChange(of: pageIndex) { _, newPage in
             if document != nil { library.progressStore.savePDFView(book.id, page: newPage) }
@@ -602,6 +639,7 @@ struct PDFReaderView: View {
             .keyboardShortcut(.upArrow, modifiers: [])
             .disabled(document == nil || pageIndex == 0)
             .help("Halaman sebelumnya (↑)")
+            .accessibilityLabel("Halaman sebelumnya")
             Text("\(min(pageIndex + 1, document?.pageCount ?? 0)) / \(document?.pageCount ?? 0)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.primary)
@@ -611,6 +649,7 @@ struct PDFReaderView: View {
             .keyboardShortcut(.downArrow, modifiers: [])
             .disabled(document == nil || pageIndex >= (document?.pageCount ?? 1) - 1)
             .help("Halaman berikutnya (↓)")
+            .accessibilityLabel("Halaman berikutnya")
             Menu {
                 Toggle("Tampilan Teks", isOn: $showText)
                 Divider()
@@ -625,7 +664,7 @@ struct PDFReaderView: View {
                 Button("150%") { showText = false; zoomMode = .percentage(150) }
                 Button("200%") { showText = false; zoomMode = .percentage(200) }
             } label: {
-                Label(showText ? "Teks" : zoomMode.label,
+                Label(LocalizedStringKey(showText ? "Teks" : zoomMode.label),
                       systemImage: "arrow.up.left.and.arrow.down.right")
             }
             .disabled(document == nil)
@@ -635,9 +674,10 @@ struct PDFReaderView: View {
                     returnToReadingRequest += 1
                     pageIndex = player.segments[player.currentIndex].page
                 } label: {
-                    Label("Kembali ke Bacaan", systemImage: "scope")
+                    Image(systemName: "scope")
                 }
                 .help("Pusatkan kalimat yang sedang dibaca dan ikuti bacaan lagi")
+                .accessibilityLabel("Kembali ke Bacaan")
             }
         }
         .padding(.horizontal, 9)
@@ -652,7 +692,8 @@ struct PDFReaderView: View {
                     if let readingDocument {
                         ForEach(readingDocument.sections, id: \.index) { section in
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("Halaman \(section.index + 1)")
+                                Text(String(format: InterfaceLocalization.string(
+                                    "Halaman %d", locale: locale), section.index + 1))
                                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                                 if section.status == .needsOCR {
                                     Text("Tidak ada teks pada halaman ini. Gunakan tampilan PDF untuk melihatnya.")
@@ -717,10 +758,22 @@ struct PDFReaderView: View {
         }
         let saved = library.progressStore.value(for: book.id)
         pageIndex = min(max(0, saved?.pdfPage ?? 0), max(0, loaded.pageCount - 1))
+        library.progressStore.markOpened(book.id)
         library.progressStore.savePDFPageCount(book.id, count: loaded.pageCount)
         outlineEntries = collectOutline(from: loaded)
         bookmarks = library.progressStore.bookmarks(for: book.id)
+        loadError = nil
         document = loaded
+    }
+
+    private func retryLoad() {
+        loadError = nil
+        load()
+        if document != nil {
+            preparationError = nil
+            preparingText = true
+            Task { await prepareText() }
+        }
     }
 
     @MainActor private func prepareText() async {

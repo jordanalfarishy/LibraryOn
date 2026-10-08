@@ -210,11 +210,21 @@
       const items = book.spine?.spineItems || [];
       const index = rendition.currentLocation()?.start?.index || 0;
       const target = items[index + direction];
-      return target ? rendition.display(target.href) : Promise.resolve();
+      if (!target) return false;
+      rendition.display(target.href).catch(error =>
+        post({kind:'error', message:'Bab EPUB gagal dibuka: '+String(error)}));
+      return true;
     }
     window.pdfSpeechNext = () => adjacentChapter(1);
     window.pdfSpeechPrevious = () => adjacentChapter(-1);
     window.pdfSpeechGo = cfi => rendition.display(cfi);
+    window.pdfSpeechGoAudioChapter = (cfi, index) => {
+      const item = book.spine?.spineItems?.[index];
+      if (!item) return false;
+      rendition.display(cfi || item.href).catch(error =>
+        post({kind:'error', message:'Posisi audio EPUB gagal dibuka: '+String(error)}));
+      return true;
+    };
     window.pdfSpeechOpenLink = address => {
       const url = new URL(address);
       if (url.protocol !== 'book:' || url.host !== 'reader' ||
@@ -244,6 +254,14 @@
                         offset: prefix.toString().length};
       selection.removeAllRanges();
       return position;
+    };
+    window.pdfSpeechBookmarkExcerpt = () => {
+      const container = rendition?.manager?.container;
+      const frame = currentDocument?.defaultView?.frameElement;
+      const viewportTop = container?.getBoundingClientRect().top || 0;
+      const frameTop = frame?.getBoundingClientRect().top || 0;
+      const visible = blocks.find(el => frameTop + el.getBoundingClientRect().bottom >= viewportTop);
+      return (visible || blocks[0])?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 70) || '';
     };
 
     try {

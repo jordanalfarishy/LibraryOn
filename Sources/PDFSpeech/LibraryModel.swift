@@ -282,9 +282,9 @@ struct RootRecord: Codable, Identifiable {
 
     func chooseFolder() {
         let panel = NSOpenPanel()
-        panel.title = "Pilih folder buku"
-        panel.message = "LibraryOn akan menampilkan PDF dan EPUB di folder ini beserta subfoldernya."
-        panel.prompt = "Buka Folder"
+        panel.title = InterfaceLocalization.string("Pilih folder buku")
+        panel.message = InterfaceLocalization.string("LibraryOn akan menampilkan PDF dan EPUB di folder ini beserta subfoldernya.")
+        panel.prompt = InterfaceLocalization.string("Buka Folder")
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
@@ -295,9 +295,10 @@ struct RootRecord: Codable, Identifiable {
     func relinkActiveRoot() {
         guard let activeRoot else { return }
         let panel = NSOpenPanel()
-        panel.title = "Pilih ulang folder \"\(activeRoot.name)\""
-        panel.message = "Pilih lokasi folder pustaka ini. Buku dan progres yang cocok tetap terhubung."
-        panel.prompt = "Pilih Ulang Folder"
+        panel.title = String(format: InterfaceLocalization.string("Pilih ulang folder \"%@\""),
+                             activeRoot.name)
+        panel.message = InterfaceLocalization.string("Pilih lokasi folder pustaka ini. Buku dan progres yang cocok tetap terhubung.")
+        panel.prompt = InterfaceLocalization.string("Pilih Ulang Folder")
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
@@ -529,6 +530,12 @@ struct RootRecord: Codable, Identifiable {
                         self.isReaderOpen = false
                         self.activeBook = nil
                         self.scanError = "File yang sedang dibaca hilang atau berubah. Posisi lama disimpan; periksa file sebelum melanjutkan."
+                    } else if let selectedBookID = self.selectedBookID,
+                              self.unavailableBookIDs.contains(selectedBookID) {
+                        self.scanError = "File buku tidak tersedia. Temukan buku untuk menghubungkan kembali progres dan penanda."
+                    } else if let selectedBookID = self.selectedBookID,
+                              self.changedBookIDs.contains(selectedBookID) {
+                        self.scanError = "Isi buku berubah. Tinjau buku sebelum melanjutkan posisi bacaan lama."
                     }
                     var candidate = self.selectedFolder
                     let paths = Set(self.folders.map(\.path))
@@ -591,17 +598,21 @@ struct RootRecord: Codable, Identifiable {
               let current = books.first(where: { $0.id == pendingChangedBook.id }),
               !unavailableBookIDs.contains(current.id) else { return }
         progressStore.resetLocation(current.id)
+        progressStore.invalidateBookmarks(for: current.id)
         changedBookIDs.remove(current.id)
         self.pendingChangedBook = nil
+        scanError = nil
         persistIndex()
         openNow(current)
     }
 
     func relinkBook(_ book: BookFile) {
         let panel = NSOpenPanel()
-        panel.title = "Temukan file untuk \"\(book.title)\""
-        panel.message = "Pilih file \(book.format.rawValue.uppercased()) yang sesuai di dalam folder pustaka ini. Progres dan penanda lama akan dihubungkan ke file pilihan."
-        panel.prompt = "Hubungkan File"
+        panel.title = String(format: InterfaceLocalization.string("Temukan file untuk \"%@\""),
+                             book.title)
+        panel.message = String(format: InterfaceLocalization.string("Pilih file %@ yang sesuai di dalam folder pustaka ini. Progres dan penanda lama akan dihubungkan ke file pilihan."),
+                               book.format.rawValue.uppercased())
+        panel.prompt = InterfaceLocalization.string("Hubungkan File")
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
@@ -629,6 +640,10 @@ struct RootRecord: Codable, Identifiable {
             scanError = progressStore.storageError ?? "Progres tidak dapat dihubungkan."
             return false
         }
+        if oldBook.size != replacement.size || oldBook.modifiedAt != replacement.modifiedAt {
+            progressStore.resetLocation(replacement.id)
+            progressStore.invalidateBookmarks(for: replacement.id)
+        }
         books.removeAll { $0.id == oldBook.id || $0.id == replacement.id }
         books.append(replacement)
         unavailableBookIDs.remove(oldBook.id)
@@ -644,7 +659,6 @@ struct RootRecord: Codable, Identifiable {
     private func openNow(_ book: BookFile) {
         selectedBookID = book.id
         activeBook = book
-        progressStore.markOpened(book.id)
         isReaderOpen = true
     }
 

@@ -17,6 +17,14 @@ mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 cp .build/release/PDFSpeech "$CONTENTS/MacOS/PDFSpeech"
 cp -R .build/release/PDFSpeech_PDFSpeech.bundle "$CONTENTS/Resources/"
 cp App/Info.plist "$CONTENTS/Info.plist"
+for language in id en; do
+  mkdir -p "$CONTENTS/Resources/$language.lproj"
+  cp "Sources/PDFSpeech/Resources/$language.lproj/Localizable.strings" \
+    "$CONTENTS/Resources/$language.lproj/Localizable.strings"
+done
+mkdir -p "$CONTENTS/Resources/Licenses"
+cp Licenses/epubjs-BSD-2-Clause.txt "$CONTENTS/Resources/Licenses/epubjs-BSD-2-Clause.txt"
+cp Vendor/ZIPFoundation/LICENSE "$CONTENTS/Resources/Licenses/ZIPFoundation-LICENSE.txt"
 if [[ -n "${PDF_SPEECH_BUNDLE_ID:-}" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $PDF_SPEECH_BUNDLE_ID" "$CONTENTS/Info.plist"
 fi

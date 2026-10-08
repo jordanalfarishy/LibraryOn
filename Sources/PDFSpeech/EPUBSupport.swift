@@ -122,25 +122,11 @@ class BookSchemeHandler: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
         onRequest?(task.request.url?.path ?? "")
-        guard let url = task.request.url, url.scheme == "book", url.host == "reader" else {
+        guard let url = task.request.url else {
             task.didFailWithError(URLError(.badURL))
             return
         }
-        let fileURL: URL?
-        if url.path == "/reader.html" {
-            fileURL = Bundle.module.url(forResource: "reader", withExtension: "html")
-        } else if url.path == "/epub.min.js" {
-            fileURL = Bundle.module.url(forResource: "epub.min", withExtension: "js")
-        } else if url.path.hasPrefix("/publication/") {
-            let relative = String(url.path.dropFirst("/publication/".count))
-                .removingPercentEncoding ?? String(url.path.dropFirst("/publication/".count))
-            let candidate = publicationRoot.appendingPathComponent(relative).standardizedFileURL
-            let prefix = publicationRoot.path + "/"
-            fileURL = candidate.path.hasPrefix(prefix) ? candidate : nil
-        } else {
-            fileURL = nil
-        }
-        guard let fileURL else {
+        guard let fileURL = fileURL(for: url) else {
             task.didFailWithError(URLError(.noPermissionsToReadFile))
             return
         }
@@ -156,6 +142,23 @@ class BookSchemeHandler: NSObject, WKURLSchemeHandler {
         } catch {
             task.didFailWithError(error)
         }
+    }
+
+    func fileURL(for url: URL) -> URL? {
+        guard url.scheme == "book", url.host == "reader" else { return nil }
+        if url.path == "/reader.html" {
+            return Bundle.module.url(forResource: "reader", withExtension: "html")
+        } else if url.path == "/epub.min.js" {
+            return Bundle.module.url(forResource: "epub.min", withExtension: "js")
+        } else if url.path.hasPrefix("/publication/") {
+            let relative = String(url.path.dropFirst("/publication/".count))
+                .removingPercentEncoding ?? String(url.path.dropFirst("/publication/".count))
+            let root = publicationRoot.resolvingSymlinksInPath()
+            let candidate = root.appendingPathComponent(relative)
+                .standardizedFileURL.resolvingSymlinksInPath()
+            return candidate.path.hasPrefix(root.path + "/") ? candidate : nil
+        }
+        return nil
     }
 
     func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {}

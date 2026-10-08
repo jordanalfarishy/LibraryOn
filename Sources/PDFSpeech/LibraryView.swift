@@ -24,6 +24,7 @@ private enum FolderTree {
 
 struct LibraryView: View {
     @Environment(LibraryModel.self) private var library
+    @Environment(\.locale) private var locale
     @State private var showResetConfirmation = false
     @State private var isFolderDropTargeted = false
 
@@ -107,10 +108,12 @@ struct LibraryView: View {
                 }
             }
             if let notice = library.dataNotice {
-                Text(notice).font(.callout).foregroundStyle(.secondary)
+                Text(InterfaceLocalization.string(notice, locale: locale))
+                    .font(.callout).foregroundStyle(.secondary)
             }
             if let error = library.scanError {
-                Text(error).foregroundStyle(.orange).font(.callout)
+                Text(InterfaceLocalization.string(error, locale: locale))
+                    .foregroundStyle(.orange).font(.callout)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -140,7 +143,7 @@ struct LibraryView: View {
                 .frame(height: min(42 + CGFloat(library.roots.count) * 43, 214))
                 Divider()
                 if let active = library.activeRoot {
-                    Text("DI DALAM \(active.name.uppercased())")
+                    Text("\(InterfaceLocalization.string("DI DALAM", locale: locale)) \(active.name.uppercased())")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -232,7 +235,7 @@ struct LibraryView: View {
             if let notice = library.dataNotice {
                 HStack(spacing: 10) {
                     Image(systemName: "checkmark.circle")
-                    Text(notice)
+                    Text(InterfaceLocalization.string(notice, locale: locale))
                     Spacer()
                     Button { library.dataNotice = nil } label: {
                         Image(systemName: "xmark")
@@ -246,16 +249,24 @@ struct LibraryView: View {
             if let error = library.scanError {
                 HStack(spacing: 10) {
                     Image(systemName: "exclamationmark.triangle")
-                    Text(error)
+                    Text(InterfaceLocalization.string(error, locale: locale))
                     Spacer()
-                    Button("Pilih Ulang Folder…") { library.relinkActiveRoot() }
+                    if let book = library.books.first(where: { $0.id == library.selectedBookID }),
+                       library.unavailableBookIDs.contains(book.id) {
+                        Button("Temukan Buku…") { library.relinkBook(book) }
+                    } else if let book = library.books.first(where: { $0.id == library.selectedBookID }),
+                              library.changedBookIDs.contains(book.id) {
+                        Button("Tinjau Buku") { library.open(book) }
+                    } else {
+                        Button("Pilih Ulang Folder…") { library.relinkActiveRoot() }
+                    }
                 }
                 .font(.callout)
                 .padding(9)
                 .background(.orange.opacity(0.13))
             }
             if let notice = library.indexNotice {
-                Text(notice)
+                Text(InterfaceLocalization.string(notice, locale: locale))
                     .font(.callout)
                     .foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -417,7 +428,7 @@ struct LibraryView: View {
                 }
 
                 HStack {
-                    Text(library.search.isEmpty ? "Buku" : "Hasil pencarian")
+                    Text(LocalizedStringKey(library.search.isEmpty ? "Buku" : "Hasil pencarian"))
                         .font(.headline)
                     Text("\(library.visibleBooks.count)")
                         .foregroundStyle(.secondary)
@@ -540,6 +551,7 @@ private struct BookListRow: View {
 
 private struct BookProgressBar: View {
     @Environment(LibraryModel.self) private var library
+    @Environment(\.locale) private var locale
     let book: BookFile
     var showsLabel = true
     @State private var measuredCount: Int?
@@ -559,10 +571,10 @@ private struct BookProgressBar: View {
         return VStack(alignment: .leading, spacing: 3) {
             ProgressView(value: progress.fraction(for: book.format))
                 .tint(progress.fraction(for: book.format) == 0 ? .clear : AppTheme.accent)
-                .accessibilityLabel("Progres \(book.title)")
-                .accessibilityValue(progress.progressLabel(for: book.format))
+                .accessibilityLabel("\(locale.language.languageCode?.identifier == "en" ? "Progress" : "Progres") \(book.title)")
+                .accessibilityValue(progress.progressLabel(for: book.format, locale: locale))
             if showsLabel {
-                Text(progress.progressLabel(for: book.format))
+                Text(progress.progressLabel(for: book.format, locale: locale))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

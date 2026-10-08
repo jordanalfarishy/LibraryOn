@@ -1,4 +1,6 @@
+import AppKit
 import AVFoundation
+import CoreAudio
 import Foundation
 import NaturalLanguage
 import Observation
@@ -165,14 +167,64 @@ enum TextSegments {
     @ObservationIgnored private let previewSynthesizer = AVSpeechSynthesizer()
     @ObservationIgnored private var session = UUID()
     @ObservationIgnored private var utteranceSessions: [ObjectIdentifier: UUID] = [:]
+    @ObservationIgnored private var outputDeviceListener: AudioObjectPropertyListenerBlock?
+    @ObservationIgnored var voiceCatalog: () -> [AVSpeechSynthesisVoice] = {
+        AVSpeechSynthesisVoice.speechVoices()
+    }
+    var pendingUtteranceCount: Int { utteranceSessions.count }
 
     override init() {
         super.init()
         synthesizer.delegate = self
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(handleWillSleep(_:)),
+            name: NSWorkspace.willSleepNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleWillTerminate(_:)),
+            name: NSApplication.willTerminateNotification, object: nil)
+        var address = Self.outputDeviceAddress
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            Task { @MainActor [weak self] in self?.handleOutputDeviceChange() }
+        }
+        if AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject),
+                                               &address, DispatchQueue.main, listener) == noErr {
+            outputDeviceListener = listener
+        }
+    }
+
+    deinit {
+        if let outputDeviceListener {
+            var address = Self.outputDeviceAddress
+            AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject),
+                                                   &address, DispatchQueue.main,
+                                                   outputDeviceListener)
+        }
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    nonisolated private static var outputDeviceAddress: AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                                   mScope: kAudioObjectPropertyScopeGlobal,
+                                   mElement: kAudioObjectPropertyElementMain)
+    }
+
+    @objc private func handleWillSleep(_ notification: Notification) {
+        pause()
+    }
+
+    @objc private func handleWillTerminate(_ notification: Notification) {
+        stop()
+    }
+
+    func handleOutputDeviceChange() {
+        guard isPlaying || waitingForSegments else { return }
+        pause()
+        error = "Perangkat audio berubah. Periksa keluaran suara, lalu tekan Putar."
     }
 
     var voices: [AVSpeechSynthesisVoice] {
-        AVSpeechSynthesisVoice.speechVoices().sorted {
+        voiceCatalog().sorted {
             ($0.language, $0.name) < ($1.language, $1.name)
         }
     }
@@ -189,7 +241,7 @@ enum TextSegments {
     func appendSegments(_ newSegments: [SpokenSegment], isComplete: Bool) {
         segments.append(contentsOf: newSegments)
         queueComplete = isComplete
-        if waitingForSegments {
+        if waitingForSegments && !isPaused {
             if currentIndex + 1 < segments.count {
                 waitingForSegments = false
                 advanceAfterUtterance()
@@ -202,7 +254,18 @@ enum TextSegments {
 
     func play() {
         previewSynthesizer.stopSpeaking(at: .immediate)
-        if waitingForSegments { return }
+        if isPlaying { return }
+        if waitingForSegments {
+            isPaused = false
+            if currentIndex + 1 < segments.count {
+                waitingForSegments = false
+                advanceAfterUtterance()
+            } else if queueComplete {
+                waitingForSegments = false
+                finishAfterUtterance()
+            }
+            return
+        }
         guard !segments.isEmpty else {
             error = "Bagian ini tidak memiliki teks yang dapat dibacakan."
             return
@@ -217,8 +280,19 @@ enum TextSegments {
     }
 
     func pause() {
-        guard synthesizer.isSpeaking else { return }
-        synthesizer.pauseSpeaking(at: .immediate)
+        if waitingForSegments {
+            isPaused = true
+            return
+        }
+        guard isPlaying || synthesizer.isSpeaking else { return }
+        if synthesizer.isSpeaking {
+            synthesizer.pauseSpeaking(at: .immediate)
+        } else {
+            // A fast tap can arrive before AVSpeechSynthesizer starts its queued utterance.
+            session = UUID()
+            synthesizer.stopSpeaking(at: .immediate)
+            utteranceSessions.removeAll()
+        }
         isPaused = true
         isPlaying = false
     }
@@ -255,6 +329,7 @@ enum TextSegments {
     }
 
     func applyRateChange() {
+        if waitingForSegments { return }
         if isPlaying { jump(to: currentIndex) }
         else if isPaused { stop() }
     }
@@ -262,6 +337,7 @@ enum TextSegments {
     func changeVoice(_ identifier: String) {
         previewSynthesizer.stopSpeaking(at: .immediate)
         voiceIdentifier = identifier
+        if waitingForSegments { return }
         if isPlaying || isPaused { jump(to: currentIndex) }
     }
 
@@ -270,18 +346,13 @@ enum TextSegments {
         previewSynthesizer.stopSpeaking(at: .immediate)
         preferredLanguage = language
         voiceIdentifier = ""
+        if waitingForSegments { return }
         if isPlaying || isPaused { jump(to: currentIndex) }
     }
 
     func previewVoice() {
         stop()
-        let voice = voiceIdentifier.isEmpty
-            ? AVSpeechSynthesisVoice(language: preferredLanguage)
-            : AVSpeechSynthesisVoice(identifier: voiceIdentifier)
-        guard let voice else {
-            error = "Suara untuk bahasa ini belum tersedia. Pilih suara yang terpasang."
-            return
-        }
+        guard let voice = selectedVoice() else { return }
         let sample = preferredLanguage == "en-US"
             ? "This is a sample of the selected voice."
             : "Ini contoh suara untuk membaca buku."
@@ -295,19 +366,7 @@ enum TextSegments {
     private func speakCurrent() {
         guard segments.indices.contains(currentIndex) else { return }
         let segment = segments[currentIndex]
-        let voice: AVSpeechSynthesisVoice?
-        if voiceIdentifier.isEmpty {
-            voice = AVSpeechSynthesisVoice(language: preferredLanguage)
-        } else {
-            voice = AVSpeechSynthesisVoice(identifier: voiceIdentifier)
-            if voice == nil {
-                error = "Suara yang dipilih tidak tersedia. Pilih suara lain."
-                isPlaying = false
-                return
-            }
-        }
-        if voice == nil {
-            error = "Suara untuk bahasa ini belum tersedia. Pilih suara yang terpasang."
+        guard let voice = selectedVoice() else {
             isPlaying = false
             return
         }
@@ -320,6 +379,28 @@ enum TextSegments {
         isPaused = false
         error = nil
         synthesizer.speak(utterance)
+    }
+
+    private func selectedVoice() -> AVSpeechSynthesisVoice? {
+        let installed = voices
+        let available = installed.filter { $0.language == preferredLanguage }
+        if !voiceIdentifier.isEmpty {
+            guard let voice = installed.first(where: { $0.identifier == voiceIdentifier }) else {
+                error = "Suara yang dipilih tidak tersedia. Pilih suara lain."
+                return nil
+            }
+            guard voice.language == preferredLanguage else {
+                error = "Suara yang dipilih tidak cocok dengan bahasa buku. Pilih suara lain."
+                return nil
+            }
+            return voice
+        }
+        guard !available.isEmpty else {
+            error = "Suara untuk bahasa ini belum tersedia. Pilih suara yang terpasang."
+            return nil
+        }
+        let preferred = AVSpeechSynthesisVoice(language: preferredLanguage)
+        return available.first(where: { $0.identifier == preferred?.identifier }) ?? available[0]
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,

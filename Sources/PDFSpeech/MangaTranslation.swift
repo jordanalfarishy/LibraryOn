@@ -252,6 +252,7 @@ actor MangaTranslationCache {
 @available(macOS 15.0, *)
 struct MangaTranslationPanel: View {
     @Environment(MangaLanguageDownload.self) private var languageDownload
+    @Environment(\.locale) private var locale
     let book: BookFile
     let pageIndex: Int
     let onClose: () -> Void
@@ -276,7 +277,8 @@ struct MangaTranslationPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Terjemahan · Halaman \(pageIndex + 1)")
+                Text(String(format: InterfaceLocalization.string("Terjemahan · Halaman %d", locale: locale),
+                            pageIndex + 1))
                     .font(.headline)
                     .lineLimit(1)
                 Spacer(minLength: 4)
@@ -307,16 +309,20 @@ struct MangaTranslationPanel: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let message, blocks.isEmpty {
                 ContentUnavailableView("Terjemahan belum tersedia", systemImage: "character.bubble",
-                                       description: Text(message))
+                                       description: Text(InterfaceLocalization.string(message, locale: locale)))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         if isPreparing { ProgressView("Menerjemahkan halaman…") }
-                        if let message { Text(message).foregroundStyle(.orange).font(.caption) }
+                        if let message {
+                            Text(InterfaceLocalization.string(message, locale: locale))
+                                .foregroundStyle(.orange).font(.caption)
+                        }
                         ForEach(blocks) { block in
                             VStack(alignment: .leading, spacing: 6) {
-                                Text("Dialog \(block.id + 1)")
+                                Text(String(format: InterfaceLocalization.string("Dialog %d", locale: locale),
+                                            block.id + 1))
                                     .font(.caption2.weight(.semibold))
                                     .foregroundStyle(.secondary)
                                 if failedBlockIDs.contains(block.id) {
@@ -351,7 +357,7 @@ struct MangaTranslationPanel: View {
         }
         .onChange(of: languageDownload.phase) { _, phase in
             if case .failed = phase, !blocks.isEmpty, translated.isEmpty {
-                message = languageDownload.statusText
+                message = languageDownload.statusText(locale: InterfaceLocalization.currentLocale)
                 isPreparing = false
             }
         }

@@ -7,6 +7,8 @@ import SwiftData
     var sentenceIndex: Int
     var epubCFI: String
     var epubChapter: Int
+    var epubAudioChapter: Int?
+    var epubAudioCFI: String?
     var pdfPageCount: Int?
     var epubChapterCount: Int?
     var lastOpened: Date
@@ -18,6 +20,8 @@ import SwiftData
         sentenceIndex = 0
         epubCFI = ""
         epubChapter = 0
+        epubAudioChapter = nil
+        epubAudioCFI = nil
         pdfPageCount = nil
         epubChapterCount = nil
         lastOpened = .now
@@ -31,6 +35,7 @@ import SwiftData
     var title: String
     var pdfPage: Int
     var epubCFI: String
+    var needsReview: Bool?
     var createdAt: Date
 
     init(id: UUID = UUID(), bookID: String, title: String,
@@ -40,6 +45,7 @@ import SwiftData
         self.title = title
         self.pdfPage = pdfPage
         self.epubCFI = epubCFI
+        needsReview = false
         self.createdAt = .now
     }
 }
@@ -49,6 +55,7 @@ struct ReadingBookmark: Identifiable, Equatable {
     let title: String
     let pdfPage: Int
     let epubCFI: String
+    let needsReview: Bool
     let createdAt: Date
 }
 
@@ -57,6 +64,8 @@ struct BookProgressValue {
     var sentenceIndex = 0
     var epubCFI = ""
     var epubChapter = 0
+    var epubAudioChapter: Int?
+    var epubAudioCFI: String?
     var pdfPageCount: Int?
     var epubChapterCount: Int?
     var lastOpened = Date.distantPast
@@ -74,7 +83,24 @@ struct BookProgressValue {
         }
     }
 
-    func progressLabel(for format: BookFormat) -> String {
+    func progressLabel(for format: BookFormat, locale: Locale? = nil) -> String {
+        if locale?.language.languageCode?.identifier == "en" {
+            if finished { return "Finished" }
+            switch format {
+            case .pdf:
+                guard let count = pdfPageCount, count > 0 else {
+                    return lastOpened == .distantPast ? "Not read yet" :
+                        "Page \(max(pdfPage, 0) + 1) · total unknown"
+                }
+                return "Page \(min(max(pdfPage, 0), count - 1) + 1) of \(count)"
+            case .epub:
+                guard let count = epubChapterCount, count > 0 else {
+                    return lastOpened == .distantPast ? "Not read yet" :
+                        "Chapter \(max(epubChapter, 0) + 1) · total unknown"
+                }
+                return "Chapter \(min(max(epubChapter, 0), count - 1) + 1) of \(count) · estimated"
+            }
+        }
         if finished { return "Selesai" }
         switch format {
         case .pdf:
@@ -99,9 +125,10 @@ struct BookProgressValue {
     private var bookmarks: [String: [ReadingBookmark]] = [:]
     private(set) var storageError: String?
 
-    init(inMemory: Bool = false) {
+    init(inMemory: Bool = false, storeURL: URL? = nil) {
         do {
-            let configuration = ModelConfiguration(isStoredInMemoryOnly: inMemory)
+            let configuration = storeURL.map { ModelConfiguration(url: $0) } ??
+                ModelConfiguration(isStoredInMemoryOnly: inMemory)
             let container = try ModelContainer(for: BookProgressEntity.self,
                                                ReadingBookmarkEntity.self,
                                                configurations: configuration)
@@ -113,6 +140,8 @@ struct BookProgressValue {
                     sentenceIndex: entity.sentenceIndex,
                     epubCFI: entity.epubCFI,
                     epubChapter: entity.epubChapter,
+                    epubAudioChapter: entity.epubAudioChapter,
+                    epubAudioCFI: entity.epubAudioCFI,
                     pdfPageCount: entity.pdfPageCount,
                     epubChapterCount: entity.epubChapterCount,
                     lastOpened: entity.lastOpened,
@@ -123,7 +152,8 @@ struct BookProgressValue {
             for entity in savedBookmarks {
                 bookmarks[entity.bookID, default: []].append(ReadingBookmark(
                     id: entity.id, title: entity.title, pdfPage: entity.pdfPage,
-                    epubCFI: entity.epubCFI, createdAt: entity.createdAt
+                    epubCFI: entity.epubCFI, needsReview: entity.needsReview ?? false,
+                    createdAt: entity.createdAt
                 ))
             }
         } catch {
@@ -153,6 +183,7 @@ struct BookProgressValue {
     func savePDFAudio(_ bookID: String, sentence: Int) {
         update(bookID) {
             $0.sentenceIndex = sentence
+            $0.finished = false
             $0.lastOpened = .now
         }
     }
@@ -171,7 +202,8 @@ struct BookProgressValue {
             context.insert(entity)
             try context.save()
             let value = ReadingBookmark(id: entity.id, title: title, pdfPage: pdfPage,
-                                        epubCFI: epubCFI, createdAt: entity.createdAt)
+                                        epubCFI: epubCFI, needsReview: false,
+                                        createdAt: entity.createdAt)
             bookmarks[bookID, default: []].append(value)
             return value
         } catch {
@@ -195,13 +227,47 @@ struct BookProgressValue {
         }
     }
 
+    func invalidateBookmarks(for bookID: String) {
+        guard let context else { return }
+        do {
+            let id = bookID
+            let request = FetchDescriptor<ReadingBookmarkEntity>(
+                predicate: #Predicate { $0.bookID == id })
+            for entity in try context.fetch(request) { entity.needsReview = true }
+            try context.save()
+            bookmarks[bookID] = (bookmarks[bookID] ?? []).map {
+                ReadingBookmark(id: $0.id, title: $0.title, pdfPage: $0.pdfPage,
+                                epubCFI: $0.epubCFI, needsReview: true,
+                                createdAt: $0.createdAt)
+            }
+        } catch {
+            context.rollback()
+            storageError = "Gagal memperbarui penanda setelah isi buku berubah: \(error.localizedDescription)"
+        }
+    }
+
     func saveEPUB(_ bookID: String, cfi: String? = nil, chapter: Int? = nil,
                   chapterCount: Int? = nil, sentence: Int? = nil) {
         update(bookID) {
             if let cfi { $0.epubCFI = cfi }
             if let chapter { $0.epubChapter = chapter }
             if let chapterCount, chapterCount > 0 { $0.epubChapterCount = chapterCount }
-            if let sentence { $0.sentenceIndex = sentence }
+            if let sentence {
+                $0.sentenceIndex = sentence
+                $0.epubAudioChapter = chapter ?? $0.epubChapter
+                $0.epubAudioCFI = cfi ?? $0.epubCFI
+                $0.finished = false
+            }
+            $0.lastOpened = .now
+        }
+    }
+
+    func saveEPUBAudio(_ bookID: String, chapter: Int, cfi: String, sentence: Int) {
+        update(bookID) {
+            $0.epubAudioChapter = chapter
+            $0.epubAudioCFI = cfi
+            $0.sentenceIndex = sentence
+            $0.finished = false
             $0.lastOpened = .now
         }
     }
@@ -216,6 +282,8 @@ struct BookProgressValue {
             $0.sentenceIndex = 0
             $0.epubCFI = ""
             $0.epubChapter = 0
+            $0.epubAudioChapter = nil
+            $0.epubAudioCFI = nil
             $0.finished = false
         }
     }
@@ -282,6 +350,8 @@ struct BookProgressValue {
             entity.sentenceIndex = next.sentenceIndex
             entity.epubCFI = next.epubCFI
             entity.epubChapter = next.epubChapter
+            entity.epubAudioChapter = next.epubAudioChapter
+            entity.epubAudioCFI = next.epubAudioCFI
             entity.pdfPageCount = next.pdfPageCount
             entity.epubChapterCount = next.epubChapterCount
             entity.lastOpened = next.lastOpened

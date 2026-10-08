@@ -48,6 +48,8 @@ struct EPUBAppearance: Equatable {
     @ObservationIgnored weak var webView: WKWebView?
     @ObservationIgnored var autoPlayNext = false
     @ObservationIgnored var firstChapter = true
+    @ObservationIgnored var pendingAudioResume: (chapter: Int, cfi: String, sentence: Int)?
+    @ObservationIgnored var resumeOnNextChapter = false
     @ObservationIgnored var originalSegments: [SpokenSegment] = []
     @ObservationIgnored var currentParagraphs: [String] = []
 
@@ -62,20 +64,39 @@ struct EPUBAppearance: Equatable {
             if !firstChapter, incoming == chapter, paragraphs == currentParagraphs {
                 return
             }
-            let start = firstChapter ? store.value(for: book.id)?.sentenceIndex ?? 0 :
-                (incoming == chapter ? player.currentIndex : 0)
+            let saved = store.value(for: book.id)
+            let start: Int
+            if resumeOnNextChapter, let pendingAudioResume,
+               incoming == pendingAudioResume.chapter {
+                start = pendingAudioResume.sentence
+                self.pendingAudioResume = nil
+                resumeOnNextChapter = false
+            } else if firstChapter {
+                let audioChapter = saved?.epubAudioChapter ?? saved?.epubChapter ?? incoming
+                if audioChapter != incoming {
+                    pendingAudioResume = (audioChapter, saved?.epubAudioCFI ?? "",
+                                          saved?.sentenceIndex ?? 0)
+                    start = 0
+                } else {
+                    start = saved?.sentenceIndex ?? 0
+                }
+            } else {
+                start = incoming == chapter ? player.currentIndex : 0
+            }
             firstChapter = false
             chapter = incoming
+            let chapterCFI = payload["cfi"] as? String ?? currentCFI
             let readingDocument = EPUBReadingAdapter.load(
                 book: book, chapter: incoming, paragraphs: paragraphs,
-                cfi: payload["cfi"] as? String ?? currentCFI)
+                cfi: chapterCFI)
             let segments = readingDocument.spokenSegments
             originalSegments = segments
             currentParagraphs = paragraphs
             player.setSegments(segments, startAt: start)
             player.onSegmentChange = { [weak self] index, segment in
                 guard let self else { return }
-                store.saveEPUB(book.id, chapter: incoming, sentence: index)
+                store.saveEPUBAudio(book.id, chapter: incoming, cfi: chapterCFI,
+                                    sentence: index)
                 if let paragraph = segment.paragraph, let range = segment.range {
                     let javascript = "pdfSpeechHighlight(\(paragraph),\(range.location),\(range.length),\(self.followReading))"
                     self.webView?.evaluateJavaScript(javascript)
@@ -84,7 +105,14 @@ struct EPUBAppearance: Equatable {
             player.onFinish = { [weak self] in
                 guard let self else { return }
                 self.autoPlayNext = true
-                self.webView?.evaluateJavaScript("pdfSpeechNext()")
+                self.webView?.evaluateJavaScript("pdfSpeechNext()") { [weak self] value, _ in
+                    Task { @MainActor [weak self] in
+                        if value as? Bool != true {
+                            self?.autoPlayNext = false
+                            store.markFinished(book.id)
+                        }
+                    }
+                }
             }
             if autoPlayNext {
                 autoPlayNext = false
@@ -100,6 +128,8 @@ struct EPUBAppearance: Equatable {
         case "startAtParagraph":
             let paragraph = payload["paragraph"] as? Int ?? 0
             if let index = player.segments.firstIndex(where: { $0.paragraph == paragraph }) {
+                pendingAudioResume = nil
+                resumeOnNextChapter = false
                 player.jump(to: index)
             }
         case "ready":
@@ -153,7 +183,7 @@ struct EPUBAppearance: Equatable {
                       let paragraph = selection["paragraph"] as? Int,
                       let offset = selection["offset"] as? Int,
                       self.currentParagraphs.indices.contains(paragraph) else {
-                    self.player.play()
+                    if !self.resumeAudioIfNeeded() { self.player.play() }
                     return
                 }
                 guard let start = TextSegments.startingAt(
@@ -164,6 +194,8 @@ struct EPUBAppearance: Equatable {
                     self.player.error = "Tidak ada teks yang dapat dibaca setelah pilihan ini."
                     return
                 }
+                self.pendingAudioResume = nil
+                self.resumeOnNextChapter = false
                 self.player.setSegments(start.segments, startAt: start.index)
                 self.player.play()
             }
@@ -181,6 +213,33 @@ struct EPUBAppearance: Equatable {
               let literal = String(data: encoded, encoding: .utf8) else { return }
         player.stop()
         webView?.evaluateJavaScript("pdfSpeechGo(\(literal))")
+    }
+
+    @discardableResult
+    private func resumeAudioIfNeeded() -> Bool {
+        guard let pendingAudioResume else { return false }
+        if pendingAudioResume.chapter == chapter {
+            self.pendingAudioResume = nil
+            player.setSegments(originalSegments, startAt: pendingAudioResume.sentence)
+            player.play()
+            return true
+        }
+        guard let encoded = try? JSONSerialization.data(
+            withJSONObject: pendingAudioResume.cfi, options: .fragmentsAllowed),
+              let literal = String(data: encoded, encoding: .utf8) else { return false }
+        resumeOnNextChapter = true
+        autoPlayNext = true
+        player.stop()
+        webView?.evaluateJavaScript(
+            "pdfSpeechGoAudioChapter(\(literal),\(pendingAudioResume.chapter))") { [weak self] value, _ in
+                Task { @MainActor [weak self] in
+                    guard let self, value as? Bool != true else { return }
+                    self.resumeOnNextChapter = false
+                    self.autoPlayNext = false
+                    self.player.error = "Posisi audio tersimpan tidak dapat dibuka. Pilih bab untuk mulai mendengarkan."
+                }
+            }
+        return true
     }
 
     func openLocalLink(_ url: String) {
@@ -337,6 +396,7 @@ private struct EPUBCanvas: NSViewRepresentable {
 
 struct EPUBReaderView: View {
     @Environment(LibraryModel.self) private var library
+    @Environment(\.locale) private var locale
     let book: BookFile
     @State private var session = EPUBSession()
     @State private var extractedFolder: URL?
@@ -363,26 +423,34 @@ struct EPUBReaderView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     if let error = session.error {
-                        ContentUnavailableView("EPUB tidak dapat dibuka", systemImage: "book.closed",
-                                               description: Text(error))
+                        VStack(spacing: 12) {
+                            ContentUnavailableView("EPUB tidak dapat dibuka", systemImage: "book.closed",
+                                                   description: Text(InterfaceLocalization.string(error, locale: locale)))
+                            Button("Coba Lagi") { retryPrepare() }
+                        }
                     } else if !session.isReady {
-                        ProgressView(session.loadingPhase)
+                        ProgressView(InterfaceLocalization.string(session.loadingPhase, locale: locale))
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = session.error {
-                ContentUnavailableView("EPUB tidak dapat dibuka", systemImage: "book.closed",
-                                       description: Text(error))
+                VStack(spacing: 12) {
+                    ContentUnavailableView("EPUB tidak dapat dibuka", systemImage: "book.closed",
+                                           description: Text(InterfaceLocalization.string(error, locale: locale)))
+                    Button("Coba Lagi") { retryPrepare() }
+                }
             } else {
                 ProgressView("Menyiapkan EPUB…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             Divider()
             if let error = session.player.error {
-                Text(error).font(.caption).foregroundStyle(.orange).padding(.top, 6)
+                Text(InterfaceLocalization.string(error, locale: locale))
+                    .font(.caption).foregroundStyle(.orange).padding(.top, 6)
             }
             PlayerControls(player: session.player,
                            onPlay: session.playFromSelection,
+                           onPreferenceChange: saveSpeechPreference,
                            leading: returnToReadingControl)
         }
         .toolbar {
@@ -392,13 +460,16 @@ struct EPUBReaderView: View {
                 }
                 .disabled(!session.isReady)
                 .help("Bab sebelumnya")
-                Text("Bab \(session.chapter + 1)")
+                .accessibilityLabel("Bab sebelumnya")
+                Text(String(format: InterfaceLocalization.string("Bab %d", locale: locale),
+                            session.chapter + 1))
                     .font(.caption.monospacedDigit())
                 Button { session.nextChapter() } label: {
                     Image(systemName: "chevron.right")
                 }
                 .disabled(!session.isReady)
                 .help("Bab berikutnya")
+                .accessibilityLabel("Bab berikutnya")
                 Menu {
                     if session.toc.isEmpty {
                         Text("EPUB ini tidak memiliki daftar isi")
@@ -425,6 +496,10 @@ struct EPUBReaderView: View {
                         ForEach(bookmarks) { bookmark in
                             Menu(bookmark.title) {
                                 Button("Buka") { session.go(to: bookmark.epubCFI) }
+                                    .disabled(bookmark.needsReview)
+                                if bookmark.needsReview {
+                                    Text("Posisi lama perlu ditinjau karena isi buku berubah")
+                                }
                                 Button("Hapus", role: .destructive) {
                                     library.progressStore.removeBookmark(bookmark.id, bookID: book.id)
                                     bookmarks = library.progressStore.bookmarks(for: book.id)
@@ -460,7 +535,8 @@ struct EPUBReaderView: View {
                         Text("Gelap").tag("dark")
                     }
                 } label: { Image(systemName: "textformat.size") }
-                .help("Tipografi dan tema EPUB · \(fontPercent)%")
+                .help(String(format: InterfaceLocalization.string(
+                    "Tipografi dan tema EPUB · %d%%", locale: locale), fontPercent))
                 .accessibilityLabel("Tipografi dan tema EPUB")
             }
         }
@@ -471,8 +547,6 @@ struct EPUBReaderView: View {
             session.player.preferredLanguage = preference.language
             session.player.voiceIdentifier = preference.voiceIdentifier
         }
-        .onChange(of: session.player.preferredLanguage) { _, _ in saveSpeechPreference() }
-        .onChange(of: session.player.voiceIdentifier) { _, _ in saveSpeechPreference() }
         .onDisappear { session.player.stop() }
     }
 
@@ -481,9 +555,10 @@ struct EPUBReaderView: View {
             (session.player.isPlaying || session.player.isPaused) &&
             !session.player.segments.isEmpty {
             Button { session.returnToReading() } label: {
-                Label("Kembali ke Bacaan", systemImage: "scope")
+                Image(systemName: "scope")
             }
             .help("Pusatkan kalimat aktif dan ikuti bacaan lagi")
+            .accessibilityLabel("Kembali ke Bacaan")
         }
     }
 
@@ -509,12 +584,31 @@ struct EPUBReaderView: View {
         }
     }
 
+    private func retryPrepare() {
+        extractedFolder = nil
+        offlineRule = nil
+        session.player.stop()
+        session = EPUBSession()
+        let preference = SpeechPreferences.load(for: book.id)
+        session.player.preferredLanguage = preference.language
+        session.player.voiceIdentifier = preference.voiceIdentifier
+        Task { await prepare() }
+    }
+
     private func addBookmark() {
         guard !session.currentCFI.isEmpty else { return }
-        let title = "Bab \(session.chapter + 1)"
-        library.progressStore.addBookmark(book.id, title: title,
-                                          epubCFI: session.currentCFI)
-        bookmarks = library.progressStore.bookmarks(for: book.id)
+        let cfi = session.currentCFI
+        let chapter = session.chapter
+        session.webView?.evaluateJavaScript("pdfSpeechBookmarkExcerpt()") { value, _ in
+            Task { @MainActor in
+                let excerpt = (value as? String ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let title = excerpt.isEmpty ? "Bab \(chapter + 1)" :
+                    "Bab \(chapter + 1) · \(excerpt)"
+                library.progressStore.addBookmark(book.id, title: title, epubCFI: cfi)
+                bookmarks = library.progressStore.bookmarks(for: book.id)
+            }
+        }
     }
 
     private func saveSpeechPreference() {

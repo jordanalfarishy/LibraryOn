@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "PDFSpeech",
+    defaultLocalization: "id",
     platforms: [.macOS(.v14)],
     products: [.executable(name: "PDFSpeech", targets: ["PDFSpeech"])],
     dependencies: [.package(path: "Vendor/ZIPFoundation")],

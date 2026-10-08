@@ -40,6 +40,23 @@ import Translation
         }
     }
 
+    func statusText(locale: Locale) -> String {
+        let name = InterfaceLocalization.string(requestedTargetCode == "en" ? "Inggris" : "Indonesia",
+                                                locale: locale)
+        let key: String
+        switch phase {
+        case .idle: return ""
+        case .checking: key = "Memeriksa bahasa Jepang → %@…"
+        case .downloading: key = "Menyiapkan bahasa Jepang → %@ di macOS…"
+        case .waiting: key = "Menunggu unduhan bahasa Jepang → %@ selesai…"
+        case .ready: key = "Bahasa Jepang → %@ siap digunakan."
+        case .failed(let detail):
+            return String(format: InterfaceLocalization.string("Bahasa Jepang → %@: %@", locale: locale),
+                          name, InterfaceLocalization.string(detail, locale: locale))
+        }
+        return String(format: InterfaceLocalization.string(key, locale: locale), name)
+    }
+
     func request(targetCode: String) {
         guard targetCode == "id" || targetCode == "en" else { return }
         if requestedTargetCode == targetCode,
@@ -130,6 +147,7 @@ import Translation
 @available(macOS 15.0, *)
 struct MangaDownloadHost: View {
     let library: LibraryModel
+    @Environment(\.locale) private var locale
     @State private var download = MangaLanguageDownload()
 
     var body: some View {
@@ -145,7 +163,7 @@ struct MangaDownloadHost: View {
                             Image(systemName: download.phase == .ready
                                   ? "checkmark.circle.fill" : "exclamationmark.triangle")
                         }
-                        Text(download.statusText)
+                        Text(download.statusText(locale: locale))
                             .font(.callout)
                             .lineLimit(2)
                         Spacer(minLength: 8)
