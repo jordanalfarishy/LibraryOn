@@ -177,7 +177,7 @@ struct PlayerControls<Leading: View>: View {
     }
 }
 
-private enum PDFZoomMode: Hashable {
+enum PDFZoomMode: Hashable {
     case fitPage, fitWidth, fitHeight, actualSize, percentage(Int)
 
     var label: String {
@@ -198,14 +198,21 @@ private struct PDFOutlineEntry: Identifiable {
     let depth: Int
 }
 
-private final class PDFCanvasView: PDFView {
+final class PDFCanvasView: PDFView {
     var programmaticSelectionKey: String?
     var onManualNavigation: (() -> Void)?
     private weak var observedScrollView: NSScrollView?
     private var liveScrollObserver: NSObjectProtocol?
     private var boundsObserver: NSObjectProtocol?
     var zoomMode: PDFZoomMode = .fitPage {
-        didSet { applyZoom() }
+        didSet {
+            // Continuous PDFView uses one scale for the whole document.
+            // Fit Height instead fits each page to the same viewport height.
+            let mode: PDFDisplayMode = zoomMode == .fitHeight
+                ? .singlePage : .singlePageContinuous
+            if displayMode != mode { displayMode = mode }
+            applyZoom()
+        }
     }
     private var applyingZoom = false
     private var translationAnnotations: [PDFAnnotation] = []
@@ -233,6 +240,11 @@ private final class PDFCanvasView: PDFView {
     override func layout() {
         super.layout()
         connectScrollObservation()
+        applyZoom()
+    }
+
+    override func go(to page: PDFPage) {
+        super.go(to: page)
         applyZoom()
     }
 
@@ -296,7 +308,7 @@ private final class PDFCanvasView: PDFView {
     }
 
     func showTranslations(_ blocks: [MangaOverlayBlock]) {
-        let key = blocks.map { "\($0.pageIndex):\($0.id):\($0.bounds):\($0.text)" }
+        let key = blocks.map { "\($0.pageIndex):\($0.id):\($0.bounds)" }
             .joined(separator: "|")
         guard translationKey != key else { return }
         for annotation in translationAnnotations {
@@ -350,6 +362,7 @@ private struct PDFCanvas: NSViewRepresentable {
         ) { [weak view] _ in
             guard let view, let page = view.currentPage,
                   let index = view.document?.index(for: page) else { return }
+            view.applyZoom()
             DispatchQueue.main.async {
                 if index != coordinator.expectedPageIndex {
                     view.onManualNavigation?()
@@ -394,6 +407,7 @@ private struct PDFCanvas: NSViewRepresentable {
         if let page = document.page(at: pageIndex), view.currentPage !== page {
             view.go(to: page)
         }
+        view.applyZoom()
         guard let segment, let range = segment.range,
               let page = document.page(at: segment.page),
               let selection = page.selection(for: range),

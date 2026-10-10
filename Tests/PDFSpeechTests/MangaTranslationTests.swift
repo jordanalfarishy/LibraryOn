@@ -3,19 +3,69 @@ import CoreGraphics
 import CoreText
 import Foundation
 import PDFKit
+import Translation
 import XCTest
 @testable import PDFSpeech
 
 final class MangaTranslationTests: XCTestCase {
-    func testTranslationResponsesFollowBlockIDs() {
-        let ordered = MangaTranslationOrder.texts(
-            blockIDs: [0, 1, 2],
-            responses: [("2", "ketiga"), ("0", "pertama"), ("1", "kedua")])
-        XCTAssertEqual(ordered, ["pertama", "kedua", "ketiga"])
-        XCTAssertNil(MangaTranslationOrder.texts(
-            blockIDs: [0, 1], responses: [("0", "pertama"), ("0", "ganda")]))
-        XCTAssertNil(MangaTranslationOrder.texts(
-            blockIDs: [0, 1], responses: [("0", "pertama")]))
+    func testAdjacentVerticalDialogueColumnsBecomeOneTranslationUnit() {
+        let candidates = [
+            MangaOCRCandidate(source: "このネイル", bounds: CGRect(x: 0.93, y: 0.51, width: 0.02, height: 0.07), confidence: 0.41),
+            MangaOCRCandidate(source: "いいじゃん", bounds: CGRect(x: 0.90, y: 0.51, width: 0.02, height: 0.07), confidence: 0.36),
+            MangaOCRCandidate(source: "どこで買ったん？", bounds: CGRect(x: 0.80, y: 0.40, width: 0.05, height: 0.08), confidence: 0.33)
+        ]
+        let texts = MangaOCRPostprocessor.blocks(from: candidates).map(\.source)
+        XCTAssertTrue(texts.contains("このネイルいいじゃん"))
+        XCTAssertTrue(texts.contains("どこで買ったん？"))
+        XCTAssertEqual(texts.count, 2)
+    }
+
+    func testOCRPostprocessorMergesOverlappingAlternativesAndFurigana() {
+        let examples = [
+            MangaOCRCandidate(source: "大塩～", bounds: CGRect(x: 0.947, y: 0.54, width: 0.022, height: 0.044), confidence: 0.11),
+            MangaOCRCandidate(source: "おおしお", bounds: CGRect(x: 0.970, y: 0.555, width: 0.010, height: 0.025), confidence: 0.15),
+            MangaOCRCandidate(source: "プク山先輩に", bounds: CGRect(x: 0.076, y: 0.452, width: 0.026, height: 0.108), confidence: 0.3),
+            MangaOCRCandidate(source: "ブク山先輩に", bounds: CGRect(x: 0.076, y: 0.453, width: 0.026, height: 0.106), confidence: 0.2)
+        ]
+        let texts = MangaOCRPostprocessor.blocks(from: examples).map(\.source)
+        XCTAssertEqual(texts.count, 2, "\(texts)")
+        XCTAssertTrue(texts.contains("大塩～"))
+        XCTAssertTrue(texts.contains("プク山先輩に"))
+    }
+
+    func testStreamingTranslationIDsAndNonJapaneseText() {
+        XCTAssertEqual(MangaTranslationOrder.blockID("2", among: [0, 1, 2]), 2)
+        XCTAssertNil(MangaTranslationOrder.blockID(nil, among: [0, 1, 2]))
+        XCTAssertNil(MangaTranslationOrder.blockID("9", among: [0, 1, 2]))
+        XCTAssertTrue(MangaTranslationOrder.needsTranslation("僕には好きな人がいる"))
+        XCTAssertTrue(MangaTranslationOrder.needsTranslation("ガラッ"))
+        XCTAssertFalse(MangaTranslationOrder.needsTranslation("44"))
+    }
+
+    @available(macOS 26.0, *)
+    func testInstalledTranslationStreamsDialogueIdentifiers() async throws {
+        guard ProcessInfo.processInfo.environment["LIBRARYON_TRANSLATION_LIVE"] == "1" else {
+            throw XCTSkip("Enable LIBRARYON_TRANSLATION_LIVE for the optional system model check.")
+        }
+        let source = Locale.Language(identifier: "ja")
+        let target = Locale.Language(identifier: "en")
+        let status = await LanguageAvailability().status(from: source, to: target)
+        guard status == .installed else {
+            throw XCTSkip("Japanese → English translation is not installed on this Mac.")
+        }
+        let session = TranslationSession(installedSource: source, target: target)
+        let requests = [
+            TranslationSession.Request(sourceText: "こんにちは", clientIdentifier: "0"),
+            TranslationSession.Request(sourceText: "ありがとう", clientIdentifier: "1")
+        ]
+        var responses: [String: String] = [:]
+        for try await response in session.translate(batch: requests) {
+            if let id = response.clientIdentifier {
+                responses[id] = response.targetText
+            }
+        }
+        XCTAssertEqual(Set(responses.keys), ["0", "1"])
+        XCTAssertTrue(responses.values.allSatisfy { !$0.isEmpty })
     }
 
     func testTranslationCacheSurvivesNewInstanceAndStaysBounded() async throws {
@@ -43,7 +93,21 @@ final class MangaTranslationTests: XCTestCase {
         XCTAssertEqual(files.filter { $0.pathExtension == "json" }.count, 20)
     }
 
-    func testOverlayUsesOCRLocationAndChangesRenderedPage() throws {
+    func testOCRResultsAreReusedAcrossTargetLanguages() async {
+        let cache = MangaTranslationCache(directory: FileManager.default.temporaryDirectory)
+        let blocks = [MangaTextBlock(id: 0, source: "こんにちは",
+                                     bounds: CGRect(x: 0.2, y: 0.3, width: 0.2, height: 0.1))]
+        await cache.setOCRBlocks(blocks, for: "page:quick")
+        let reused = await cache.ocrBlocks(for: "page:quick")
+        XCTAssertEqual(reused?.map(\.source), ["こんにちは"])
+        let detailed = await cache.ocrBlocks(for: "page:detailed")
+        XCTAssertNil(detailed)
+        await cache.dropMemory()
+        let cleared = await cache.ocrBlocks(for: "page:quick")
+        XCTAssertNil(cleared)
+    }
+
+    func testSelectedDialogueOnlyOutlinesOCRLocationWithoutCoveringArt() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("pdf-speech-manga-overlay-\(UUID().uuidString).pdf")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -61,25 +125,29 @@ final class MangaTranslationTests: XCTestCase {
         let before = try XCTUnwrap(page.thumbnail(
             of: NSSize(width: 600, height: 800), for: .mediaBox).tiffRepresentation)
         let block = MangaOverlayBlock(
-            pageIndex: 0, id: 0, bounds: CGRect(x: 0.25, y: 0.5, width: 0.3, height: 0.07),
-            text: "Terjemahan dialog ini terlihat pada halaman")
+            pageIndex: 0, id: 0, bounds: CGRect(x: 0.25, y: 0.5, width: 0.3, height: 0.07))
         let annotations = try XCTUnwrap(MangaOverlayAnnotation.make(
             for: block, on: page))
-        XCTAssertEqual(annotations.count, 2)
+        XCTAssertEqual(annotations.count, 1)
         XCTAssertEqual(annotations[0].bounds.midX, 240, accuracy: 0.1)
         XCTAssertEqual(annotations[0].bounds.midY, 428, accuracy: 0.1)
-        XCTAssertGreaterThan(annotations[1].font?.pointSize ?? 0, 11)
+        XCTAssertLessThan(annotations[0].bounds.width, 200)
+        XCTAssertLessThan(annotations[0].bounds.height, 80)
+        XCTAssertNil(annotations[0].interiorColor)
+        XCTAssertNil(annotations[0].contents)
         annotations.forEach(page.addAnnotation)
         let after = try XCTUnwrap(page.thumbnail(
             of: NSSize(width: 600, height: 800), for: .mediaBox).tiffRepresentation)
         XCTAssertNotEqual(before, after)
         let beforeImage = try XCTUnwrap(NSBitmapImageRep(data: before))
         let afterImage = try XCTUnwrap(NSBitmapImageRep(data: after))
-        let sampleX = Int(annotations[0].bounds.minX + 10)
+        let sampleX = Int(annotations[0].bounds.midX)
         let sampleY = Int(800 - annotations[0].bounds.midY)
         let beforeColor = try XCTUnwrap(beforeImage.colorAt(x: sampleX, y: sampleY))
         let afterColor = try XCTUnwrap(afterImage.colorAt(x: sampleX, y: sampleY))
-        XCTAssertGreaterThan(afterColor.redComponent, beforeColor.redComponent + 0.08)
+        XCTAssertEqual(afterColor.redComponent, beforeColor.redComponent, accuracy: 0.02)
+        XCTAssertEqual(afterColor.greenComponent, beforeColor.greenComponent, accuracy: 0.02)
+        XCTAssertEqual(afterColor.blueComponent, beforeColor.blueComponent, accuracy: 0.02)
         if let path = ProcessInfo.processInfo.environment["PDF_SPEECH_OVERLAY_PREVIEW"],
            let png = afterImage.representation(using: .png, properties: [:]) {
             try png.write(to: URL(fileURLWithPath: path), options: .atomic)
@@ -91,7 +159,7 @@ final class MangaTranslationTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: url), originalFile)
     }
 
-    func testExtractsOnlyRequestedPDFPage() throws {
+    func testExtractsOnlyRequestedPDFPage() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("pdf-speech-manga-\(UUID().uuidString).pdf")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -110,8 +178,8 @@ final class MangaTranslationTests: XCTestCase {
         }
         context.closePDF()
 
-        let first = try MangaPageOCR.recognize(at: url, pageIndex: 0)
-        let second = try MangaPageOCR.recognize(at: url, pageIndex: 1)
+        let first = try await MangaPageOCR.recognize(at: url, pageIndex: 0)
+        let second = try await MangaPageOCR.recognize(at: url, pageIndex: 1)
         XCTAssertTrue(first.map(\.source).joined().contains("第一ページ"))
         XCTAssertFalse(first.map(\.source).joined().contains("第二ページ"))
         XCTAssertTrue(second.map(\.source).joined().contains("第二ページ"))
@@ -119,7 +187,7 @@ final class MangaTranslationTests: XCTestCase {
         XCTAssertTrue(second.allSatisfy { $0.bounds != nil })
     }
 
-    func testRecognizesOnlyCurrentImagePage() throws {
+    func testRecognizesOnlyCurrentImagePage() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("pdf-speech-manga-image-\(UUID().uuidString).pdf")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -147,8 +215,8 @@ final class MangaTranslationTests: XCTestCase {
         }
         pdf.closePDF()
 
-        let first = try MangaPageOCR.recognize(at: url, pageIndex: 0)
-        let second = try MangaPageOCR.recognize(at: url, pageIndex: 1)
+        let first = try await MangaPageOCR.recognize(at: url, pageIndex: 0)
+        let second = try await MangaPageOCR.recognize(at: url, pageIndex: 1)
         XCTAssertTrue(first.map(\.source).joined().contains("今日"))
         XCTAssertFalse(first.map(\.source).joined().contains("明日"))
         XCTAssertTrue(second.map(\.source).joined().contains("明日"))

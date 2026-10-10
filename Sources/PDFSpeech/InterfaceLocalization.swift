@@ -14,6 +14,8 @@ enum InterfaceLocalization {
         if exact != key || language != "en" { return exact }
 
         let patterns: [(prefix: String, suffix: String, template: String)] = [
+            ("Buku cloud belum dapat diunduh. Periksa koneksi dan aplikasi sinkronisasi, lalu coba lagi. ", "",
+             "Buku cloud belum dapat diunduh. Periksa koneksi dan aplikasi sinkronisasi, lalu coba lagi. %@"),
             ("Akses folder tidak dapat disimpan: ", "", "Akses folder tidak dapat disimpan: %@"),
             ("Folder tidak dapat dibuka: ", "", "Folder tidak dapat dibuka: %@"),
             ("Folder \"", "\" tidak tersedia. Pilih ulang foldernya.",

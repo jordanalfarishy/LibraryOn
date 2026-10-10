@@ -93,6 +93,9 @@ struct LibraryView: View {
             Button("Buka Folder Buku…") { library.chooseFolder() }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
+            Button("Tambah dari Cloud…", systemImage: "cloud") { library.chooseCloudFolder() }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
             if !library.roots.isEmpty {
                 Menu("Folder Terakhir") {
                     ForEach(library.roots) { root in
@@ -129,7 +132,10 @@ struct LibraryView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Button { library.chooseFolder() } label: {
+                        Menu {
+                            Button("Tambah Folder…") { library.chooseFolder() }
+                            Button("Tambah dari Cloud…", systemImage: "cloud") { library.chooseCloudFolder() }
+                        } label: {
                             Image(systemName: "plus")
                         }
                         .buttonStyle(.borderless)
@@ -157,6 +163,7 @@ struct LibraryView: View {
                 Divider()
                 Menu {
                     Button("Buka Folder Lain…") { library.chooseFolder() }
+                    Button("Tambah dari Cloud…", systemImage: "cloud") { library.chooseCloudFolder() }
                     Button("Pilih Ulang Lokasi Folder Ini…") { library.relinkActiveRoot() }
                     Button("Lepas Folder Ini", role: .destructive) { library.forgetActiveRoot() }
                     Divider()
@@ -191,7 +198,8 @@ struct LibraryView: View {
         return List(selection: selection) {
             ForEach(library.roots) { root in
                 HStack(spacing: 9) {
-                    Image(systemName: library.activeRootID == root.id ? "folder.fill" : "folder")
+                    Image(systemName: root.cloudBacked == true ? "cloud" :
+                        (library.activeRootID == root.id ? "folder.fill" : "folder"))
                         .foregroundStyle(AppTheme.accent)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(root.name).fontWeight(.medium).lineLimit(1)
@@ -232,6 +240,19 @@ struct LibraryView: View {
     private var libraryContent: some View {
         @Bindable var library = library
         return VStack(spacing: 0) {
+            if let id = library.openingCloudBookID,
+               let book = library.books.first(where: { $0.id == id }) {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text(String(format: InterfaceLocalization.string("Menyiapkan buku cloud: %@", locale: locale), book.title))
+                        .lineLimit(1)
+                    Spacer()
+                    Button("Batal") { library.cancelCloudOpen() }
+                }
+                .font(.callout)
+                .padding(9)
+                .background(AppTheme.accent.opacity(0.08))
+            }
             if let notice = library.dataNotice {
                 HStack(spacing: 10) {
                     Image(systemName: "checkmark.circle")
@@ -251,7 +272,9 @@ struct LibraryView: View {
                     Image(systemName: "exclamationmark.triangle")
                     Text(InterfaceLocalization.string(error, locale: locale))
                     Spacer()
-                    if let book = library.books.first(where: { $0.id == library.selectedBookID }),
+                    if let book = library.books.first(where: { $0.id == library.cloudOpenErrorBookID }) {
+                        Button("Coba Lagi") { library.open(book) }
+                    } else if let book = library.books.first(where: { $0.id == library.selectedBookID }),
                        library.unavailableBookIDs.contains(book.id) {
                         Button("Temukan Buku…") { library.relinkBook(book) }
                     } else if let book = library.books.first(where: { $0.id == library.selectedBookID }),
@@ -461,6 +484,7 @@ struct LibraryView: View {
 
 private struct BookGridCard: View {
     @Environment(LibraryModel.self) private var library
+    @Environment(\.locale) private var locale
     @FocusState private var isFocused: Bool
     let book: BookFile
 
@@ -475,7 +499,11 @@ private struct BookGridCard: View {
                 Text(book.title).font(.subheadline.weight(.medium)).lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if library.unavailableBookIDs.contains(book.id) {
-                    Label("File tidak tersedia · klik untuk hubungkan", systemImage: "exclamationmark.triangle")
+                    Label(InterfaceLocalization.string(
+                          library.activeRoot?.cloudBacked == true
+                              ? "File cloud tidak tersedia · buka untuk mencoba lagi"
+                              : "File tidak tersedia · klik untuk hubungkan", locale: locale),
+                          systemImage: "exclamationmark.triangle")
                         .font(.caption2)
                         .foregroundStyle(.orange)
                         .lineLimit(1)
@@ -521,7 +549,10 @@ private struct BookListRow: View {
                 if library.unavailableBookIDs.contains(book.id) {
                     Image(systemName: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
-                        .help("Temukan file")
+                        .help(InterfaceLocalization.string(
+                            library.activeRoot?.cloudBacked == true
+                                ? "Buka untuk mencoba mengunduh lagi" : "Temukan file",
+                            locale: InterfaceLocalization.currentLocale))
                 } else {
                     BookProgressBar(book: book, showsLabel: false)
                         .frame(width: 112)
@@ -603,6 +634,7 @@ private struct BookProgressBar: View {
 private struct BookCoverImage: View {
     let book: BookFile
     @State private var cover: NSImage?
+    @State private var needsDownload = false
 
     private var version: String {
         "\(book.id):\(book.size):\(book.modifiedAt.timeIntervalSince1970)"
@@ -622,7 +654,8 @@ private struct BookCoverImage: View {
                         .clipped()
                 } else {
                     VStack(spacing: 7) {
-                        Image(systemName: book.format == .pdf ? "doc.richtext" : "book.closed")
+                        Image(systemName: needsDownload ? "cloud.and.arrow.down" :
+                            (book.format == .pdf ? "doc.richtext" : "book.closed"))
                             .font(.system(size: min(geometry.size.width * 0.28, 42),
                                           weight: .ultraLight))
                         if geometry.size.width > 70 {
@@ -637,6 +670,10 @@ private struct BookCoverImage: View {
         }
         .task(id: version) {
             cover = nil
+            needsDownload = await Task.detached(priority: .utility) {
+                CloudFileAccess.needsDownload(book.url)
+            }.value
+            guard !Task.isCancelled else { return }
             if let data = await BookCoverStore.shared.data(for: book),
                !Task.isCancelled {
                 cover = NSImage(data: data)

@@ -49,7 +49,8 @@ enum LibraryScanUpdate: Sendable {
 }
 
 enum FolderScanner {
-    static func book(at url: URL, root: URL, rootID: UUID) -> BookFile? {
+    static func book(at url: URL, root: URL, rootID: UUID,
+                     cloudBacked: Bool = false) -> BookFile? {
         let standardized = url.standardizedFileURL
         let prefix = root.standardizedFileURL.path + "/"
         guard standardized.path.hasPrefix(prefix),
@@ -58,11 +59,13 @@ enum FolderScanner {
                 .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey
               ]),
               values.isRegularFile == true, values.isSymbolicLink != true else { return nil }
-        var info = stat()
-        guard lstat(standardized.path, &info) == 0 else { return nil }
         let relative = String(standardized.path.dropFirst(prefix.count))
         let parent = (relative as NSString).deletingLastPathComponent
-        return BookFile(id: "\(rootID.uuidString):\(info.st_dev):\(info.st_ino)",
+        var info = stat()
+        guard cloudBacked || lstat(standardized.path, &info) == 0 else { return nil }
+        let identity = cloudBacked ? "\(rootID.uuidString):path:\(relative)"
+            : "\(rootID.uuidString):\(info.st_dev):\(info.st_ino)"
+        return BookFile(id: identity,
                         relativePath: relative, folderPath: parent == "." ? "" : parent,
                         url: standardized,
                         title: standardized.deletingPathExtension().lastPathComponent,
@@ -70,10 +73,11 @@ enum FolderScanner {
                         modifiedAt: values.contentModificationDate ?? .distantPast)
     }
 
-    static func scanBatches(_ root: URL, rootID: UUID) -> AsyncStream<LibraryScanUpdate> {
+    static func scanBatches(_ root: URL, rootID: UUID,
+                            cloudBacked: Bool = false) -> AsyncStream<LibraryScanUpdate> {
         AsyncStream { continuation in
             let worker = Task.detached(priority: .utility) {
-                let result = scan(root, rootID: rootID) { partial in
+                let result = scan(root, rootID: rootID, cloudBacked: cloudBacked) { partial in
                     continuation.yield(.partial(partial))
                 }
                 if !Task.isCancelled { continuation.yield(.complete(result)) }
@@ -83,7 +87,7 @@ enum FolderScanner {
         }
     }
 
-    static func scan(_ root: URL, rootID: UUID,
+    static func scan(_ root: URL, rootID: UUID, cloudBacked: Bool = false,
                      onBatch: ((LibraryScanBatch) -> Void)? = nil) -> LibrarySnapshot {
         let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey,
                                       .fileSizeKey, .contentModificationDateKey]
@@ -133,7 +137,9 @@ enum FolderScanner {
                   let format = BookFormat(rawValue: url.pathExtension.lowercased()) else { continue }
             var info = stat()
             let identity: String
-            if lstat(url.path, &info) == 0 {
+            if cloudBacked {
+                identity = "\(rootID.uuidString):path:\(relative)"
+            } else if lstat(url.path, &info) == 0 {
                 identity = "\(rootID.uuidString):\(info.st_dev):\(info.st_ino)"
             } else {
                 identity = "\(rootID.uuidString):path:\(relative)"
@@ -169,6 +175,7 @@ struct RootRecord: Codable, Identifiable {
     var sortByModified: Bool? = nil
     var lastScrollBookID: String? = nil
     var lastSelectedBookID: String? = nil
+    var cloudBacked: Bool? = nil
 }
 
 @MainActor @Observable final class LibraryModel {
@@ -202,6 +209,8 @@ struct RootRecord: Codable, Identifiable {
     var activeBook: BookFile?
     var selectedBookID: String? { didSet { persistCurrentRoot() } }
     var isReaderOpen = false
+    var openingCloudBookID: String?
+    var cloudOpenErrorBookID: String?
     var scrollAnchor: String? { didSet { persistCurrentRoot() } }
 
     @ObservationIgnored private var accessStarted = false
@@ -211,6 +220,8 @@ struct RootRecord: Codable, Identifiable {
     @ObservationIgnored private var indexLoadTask: Task<Void, Never>?
     @ObservationIgnored private var changeTask: Task<Void, Never>?
     @ObservationIgnored private var watcher: FolderWatcher?
+    @ObservationIgnored private var cloudOpenTask: Task<Void, Never>?
+    @ObservationIgnored private var cloudOpenGeneration = 0
     @ObservationIgnored private let preferences: UserDefaults
     @ObservationIgnored private let rootResolver: (RootRecord) throws -> (URL, Bool)
     @ObservationIgnored private let bookmarkCreator: (URL) throws -> Data
@@ -281,15 +292,26 @@ struct RootRecord: Codable, Identifiable {
     }
 
     func chooseFolder() {
+        chooseFolder(cloudBacked: false)
+    }
+
+    func chooseCloudFolder() {
+        chooseFolder(cloudBacked: true)
+    }
+
+    private func chooseFolder(cloudBacked: Bool) {
         let panel = NSOpenPanel()
-        panel.title = InterfaceLocalization.string("Pilih folder buku")
-        panel.message = InterfaceLocalization.string("LibraryOn akan menampilkan PDF dan EPUB di folder ini beserta subfoldernya.")
+        panel.title = InterfaceLocalization.string(cloudBacked
+            ? "Pilih folder cloud di Finder" : "Pilih folder buku")
+        panel.message = InterfaceLocalization.string(cloudBacked
+            ? "Pilih folder Google Drive, OneDrive, atau iCloud Drive yang tersedia di Finder. File online akan diunduh saat dibuka."
+            : "LibraryOn akan menampilkan PDF dan EPUB di folder ini beserta subfoldernya.")
         panel.prompt = InterfaceLocalization.string("Buka Folder")
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        addRoot(url)
+        addRoot(url, cloudBacked: cloudBacked)
     }
 
     func relinkActiveRoot() {
@@ -340,7 +362,7 @@ struct RootRecord: Codable, Identifiable {
     }
 
     @discardableResult
-    func addRoot(_ url: URL) -> Bool {
+    func addRoot(_ url: URL, cloudBacked: Bool = false) -> Bool {
         var isDirectory = ObjCBool(false)
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
               isDirectory.boolValue, FileManager.default.isReadableFile(atPath: url.path) else {
@@ -359,7 +381,7 @@ struct RootRecord: Codable, Identifiable {
             let record = RootRecord(id: UUID(), name: url.lastPathComponent,
                                     pathHint: url.deletingLastPathComponent().path,
                                     bookmark: bookmark, lastFolder: "", listMode: false,
-                                    sortByRecent: false)
+                                    sortByRecent: false, cloudBacked: cloudBacked)
             roots.insert(record, at: 0)
             saveRoots()
             activateRoot(record.id)
@@ -377,6 +399,8 @@ struct RootRecord: Codable, Identifiable {
         changeTask?.cancel()
         scanTask?.cancel()
         indexLoadTask?.cancel()
+        cancelCloudOpen()
+        cloudOpenErrorBookID = nil
         scanGeneration += 1
         let activationGeneration = scanGeneration
         if accessStarted { rootURL?.stopAccessingSecurityScopedResource() }
@@ -449,10 +473,13 @@ struct RootRecord: Codable, Identifiable {
         }
         scanGeneration += 1
         let generation = scanGeneration
+        let cloudBacked = activeRoot?.cloudBacked == true
         scanTask?.cancel()
         isScanning = true
         scanTask = Task { [weak self] in
-            for await update in FolderScanner.scanBatches(rootURL, rootID: activeRootID) {
+            for await update in FolderScanner.scanBatches(
+                rootURL, rootID: activeRootID,
+                cloudBacked: cloudBacked) {
                 guard let self, !Task.isCancelled,
                       self.scanGeneration == generation, self.activeRootID == activeRootID else {
                     return
@@ -566,10 +593,66 @@ struct RootRecord: Codable, Identifiable {
     }
 
     func open(_ book: BookFile) {
-        if unavailableBookIDs.contains(book.id) {
+        if unavailableBookIDs.contains(book.id), activeRoot?.cloudBacked != true {
             relinkBook(book)
             return
         }
+        if activeRoot?.cloudBacked == true || CloudFileAccess.needsDownload(book.url) {
+            openCloudBook(book)
+            return
+        }
+        cancelCloudOpen()
+        cloudOpenErrorBookID = nil
+        openAvailableBook(book)
+    }
+
+    private func openCloudBook(_ book: BookFile) {
+        cloudOpenTask?.cancel()
+        cloudOpenGeneration += 1
+        let generation = cloudOpenGeneration
+        let rootID = activeRootID
+        let accessRoot = rootURL
+        openingCloudBookID = book.id
+        cloudOpenErrorBookID = nil
+        scanError = nil
+        cloudOpenTask = Task { [weak self] in
+            let worker = Task.detached(priority: .userInitiated) {
+                try CloudFileAccess.prepareForReading(book.url, accessRoot: accessRoot)
+            }
+            do {
+                try await withTaskCancellationHandler {
+                    try await worker.value
+                } onCancel: {
+                    worker.cancel()
+                }
+                guard let self, !Task.isCancelled,
+                      self.cloudOpenGeneration == generation,
+                      self.activeRootID == rootID else { return }
+                self.openingCloudBookID = nil
+                self.cloudOpenTask = nil
+                self.unavailableBookIDs.remove(book.id)
+                self.openAvailableBook(book)
+            } catch {
+                guard let self, !Task.isCancelled,
+                      self.cloudOpenGeneration == generation,
+                      self.activeRootID == rootID else { return }
+                self.openingCloudBookID = nil
+                self.cloudOpenTask = nil
+                self.cloudOpenErrorBookID = book.id
+                self.selectedBookID = book.id
+                self.scanError = "Buku cloud belum dapat diunduh. Periksa koneksi dan aplikasi sinkronisasi, lalu coba lagi. \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func cancelCloudOpen() {
+        cloudOpenGeneration += 1
+        cloudOpenTask?.cancel()
+        cloudOpenTask = nil
+        openingCloudBookID = nil
+    }
+
+    private func openAvailableBook(_ book: BookFile) {
         guard FileManager.default.isReadableFile(atPath: book.url.path) else {
             unavailableBookIDs.insert(book.id)
             scanError = "File buku tidak tersedia. Pilih lokasi baru untuk menghubungkan progresnya."
@@ -632,7 +715,8 @@ struct RootRecord: Codable, Identifiable {
             return false
         }
         guard let replacement = FolderScanner.book(at: url, root: rootURL,
-                                                   rootID: activeRootID) else {
+                                                   rootID: activeRootID,
+                                                   cloudBacked: activeRoot?.cloudBacked == true) else {
             scanError = "File pilihan tidak dapat dipindai. Segarkan pustaka lalu coba lagi."
             return false
         }
@@ -698,6 +782,8 @@ struct RootRecord: Codable, Identifiable {
 
     func forgetActiveRoot() {
         guard let activeRootID else { return }
+        cancelCloudOpen()
+        cloudOpenErrorBookID = nil
         watcher?.stop()
         watcher = nil
         changeTask?.cancel()

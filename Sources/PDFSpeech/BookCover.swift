@@ -20,6 +20,7 @@ actor BookCoverStore {
         let directory = cache.appendingPathComponent("PDFSpeech/Covers", isDirectory: true)
         let target = directory.appendingPathComponent(digest).appendingPathExtension("png")
         if let saved = try? Data(contentsOf: target) { return saved }
+        guard !CloudFileAccess.needsDownload(book.url) else { return nil }
         let rendered: Data?
         switch book.format {
         case .pdf: rendered = FirstPageRenderer.pdf(at: book.url)
@@ -36,9 +37,10 @@ actor BookCoverStore {
 
 enum BookLength {
     static func count(for book: BookFile) -> Int? {
+        guard !CloudFileAccess.needsDownload(book.url) else { return nil }
         switch book.format {
-        case .pdf: PDFDocument(url: book.url)?.pageCount
-        case .epub: EPUBFirstPage.spineCount(fromArchive: book.url)
+        case .pdf: return PDFDocument(url: book.url)?.pageCount
+        case .epub: return EPUBFirstPage.spineCount(fromArchive: book.url)
         }
     }
 }

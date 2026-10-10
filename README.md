@@ -25,6 +25,7 @@ The build uses vendored dependencies and creates `dist/LibraryOn.app`. Reopen th
 ## What works now
 
 - Browse multiple library roots and subfolders; search titles, sort, and switch between grid and list views. The saved index appears while the folder is checked again in the background.
+- Add a Google Drive for desktop, OneDrive, or iCloud Drive folder from Finder with **Add from Cloud**. LibraryOn indexes PDFs and EPUBs without downloading every cover; an online-only book is prepared when opened. Folder access, reading progress, and bookmarks remain local.
 - Read text-based PDFs in original or text view, and reflowable EPUB 2/3 books with chapters, contents, typography, and themes.
 - Listen using installed Indonesian or English system voices, with play/pause, sentence navigation, speed, voice preview, and per-book voice choices.
 - Resume visual and audio positions separately, follow the spoken sentence, and save bookmarks. Manual scrolling pauses auto-follow without pausing speech.
@@ -46,7 +47,8 @@ The target-shaped **Return to Reading** control is icon-only in PDF and EPUB rea
 ## Scope and limitations
 
 - Scanned/image-only PDFs need OCR for general TTS; multi-column reading order is not yet supported. Fixed-layout, interactive, scripted, and DRM-protected EPUBs are outside the current reader scope.
-- Manga translation on macOS 15+ is **experimental**: it processes the active PDF page locally and can show temporary overlays, but real manga layouts, model download, speed, and memory still need beta validation.
+- Cloud folders require the provider's desktop sync app and a folder visible in Finder. Availability and download time depend on that provider; LibraryOn does not connect to cloud accounts directly.
+- Manga translation on macOS 15+ is **experimental**: it processes the active PDF page locally. On macOS 26+, fast OCR scans a page once; **Scan More Thoroughly** adds overlapping crops when dialogue is missed. Older macOS versions use the legacy OCR path. Dialogue translations appear progressively in the side panel so the artwork remains visible; selecting the highlight icon draws a thin outline around one dialogue. The panel also lets you correct OCR before retranslating. Real manga layouts, model download, speed, and memory still need broader beta validation.
 - The core reader has no account, analytics, or document upload path. Remote HTTP/HTTPS content inside EPUBs is blocked. macOS may need to download a translation language model before its local translation feature is available.
 - The beta gate still needs broader device and document testing, a five-person usability/voice study, and Developer ID signing plus notarization. See [M4 validation](Docs/M4-validation.md) for evidence and remaining work.
 
