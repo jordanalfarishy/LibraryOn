@@ -269,7 +269,17 @@ enum TextSegments {
 
     var voices: [AVSpeechSynthesisVoice] {
         voiceCatalog().sorted {
-            ($0.language, $0.name) < ($1.language, $1.name)
+            if $0.language != $1.language { return $0.language < $1.language }
+            if $0.quality != $1.quality { return $0.quality.rawValue > $1.quality.rawValue }
+            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+    }
+
+    static func qualityLabel(for voice: AVSpeechSynthesisVoice) -> String {
+        switch voice.quality {
+        case .premium: "Premium"
+        case .enhanced: "Enhanced"
+        default: "Standard"
         }
     }
 
@@ -439,8 +449,8 @@ enum TextSegments {
         stop()
         guard let voice = selectedVoice() else { return }
         let sample = preferredLanguage == "en-US"
-            ? "This is a sample of the selected voice."
-            : "Ini contoh suara untuk membaca buku."
+            ? "Chapter 2. At 9:30, Dr. Smith read 1,250 pages. Really? Yes, slowly."
+            : "Bab 2. Pukul 9.30, Dr. Sari membaca 1.250 halaman. Benarkah? Ya, perlahan."
         let utterance = AVSpeechUtterance(string: sample)
         utterance.voice = voice
         utterance.rate = rate

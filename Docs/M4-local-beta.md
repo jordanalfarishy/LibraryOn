@@ -1,8 +1,8 @@
 # Paket beta lokal LibraryOn
 
-Arsip M4 awal [`dist/LibraryOn-local-beta.zip`](../dist/LibraryOn-local-beta.zip) berisi versi **0.5.3 (17)** dan telah diperiksa integritasnya pada saat dibuat. `dist/LibraryOn.app` sekarang mengikuti build pengembangan **0.6.2 (20)** dengan backlog B01–B07, pemutar lintas buku yang mengambang di Reader lain, dan kartu pustaka dengan progres di thumbnail. Keduanya ditandatangani **ad-hoc** untuk QA di Mac pemilik, belum menggunakan Developer ID atau notarization untuk distribusi ke Mac lain.
+Arsip M4 awal [`dist/LibraryOn-local-beta.zip`](../dist/LibraryOn-local-beta.zip) berisi versi **0.5.3 (17)** dan telah diperiksa integritasnya pada saat dibuat. `dist/LibraryOn.app` sekarang mengikuti build pengembangan **0.7.0 (21)** dengan implementasi awal B08–B12 di atas B01–B07. Keduanya ditandatangani **ad-hoc** untuk QA di Mac pemilik, belum menggunakan Developer ID atau notarization untuk distribusi ke Mac lain.
 
-Arsip QA versi baru tersedia sebagai [`dist/LibraryOn-0.6.2-local.zip`](../dist/LibraryOn-0.6.2-local.zip). Build baru belum menggantikan bukti gate M4 lama atau verifikasi instalasi Mac lain.
+Arsip QA versi baru tersedia sebagai [`dist/LibraryOn-0.7.0-local.zip`](../dist/LibraryOn-0.7.0-local.zip). Build baru belum menggantikan bukti gate M4 lama atau verifikasi instalasi Mac lain; lihat [validasi B08–B12](B08-B12-validation.md).
 
 ## Memakai paket di Mac pengembangan
 

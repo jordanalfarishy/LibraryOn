@@ -97,7 +97,7 @@ struct LibraryView: View {
                 library.resetReadingData()
             }
         } message: {
-            Text("Posisi baca dan semua penanda akan dihapus. File buku dan folder pustaka tetap ada.")
+            Text("Posisi baca, progres video manual, dan semua penanda akan dihapus. File dan folder pustaka tetap ada.")
         }
         .alert("Isi buku berubah", isPresented: Binding(
             get: { library.pendingChangedBook != nil },
@@ -126,7 +126,7 @@ struct LibraryView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Mulai pustaka Anda")
                                 .font(.system(size: 24, weight: .semibold, design: .rounded))
-                            Text("Pilih folder buku dari Mac atau layanan cloud yang tersambung ke Finder. PDF, EPUB, TXT, dan DOCX di dalamnya akan muncul di sini.")
+                            Text("Pilih folder dari Mac atau layanan cloud yang tersambung ke Finder. Buku dan video di dalamnya akan muncul di sini.")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -340,7 +340,12 @@ struct LibraryView: View {
                     Image(systemName: "exclamationmark.triangle")
                     Text(InterfaceLocalization.string(error, locale: locale))
                     Spacer()
-                    if let book = library.books.first(where: { $0.id == library.cloudOpenErrorBookID }) {
+                    if let video = library.books.first(where: {
+                        $0.id == library.selectedBookID && $0.format == .video
+                    }) {
+                        Button("Coba Lagi") { library.open(video) }
+                        Button("Segarkan folder") { library.scan() }
+                    } else if let book = library.books.first(where: { $0.id == library.cloudOpenErrorBookID }) {
                         Button("Coba Lagi") { library.open(book) }
                     } else if let book = library.books.first(where: { $0.id == library.selectedBookID }),
                        library.unavailableBookIDs.contains(book.id) {
@@ -380,7 +385,7 @@ struct LibraryView: View {
                 emptyContent
             } else {
                 booksArea
-                    .id("\(library.cacheRevision):\(library.progressRevision)")
+                    .id("\(library.cacheRevision):\(library.progressRevision):\(library.videoProgressRevision)")
             }
         }
         .background(AppTheme.canvas)
@@ -392,12 +397,14 @@ struct LibraryView: View {
                         library.open(book)
                     }
                 } label: {
-                    Image(systemName: "book")
+                    Image(systemName: library.visibleBooks.first(where: {
+                        $0.id == library.selectedBookID
+                    })?.format == .video ? "play.rectangle" : "book")
                 }
                 .disabled(!library.visibleBooks.contains { $0.id == library.selectedBookID })
                 .keyboardShortcut(.return, modifiers: [])
-                .help("Buka buku terpilih (↩)")
-                .accessibilityLabel("Buka buku terpilih")
+                .help("Buka item terpilih (↩)")
+                .accessibilityLabel("Buka item terpilih")
                 if !library.search.isEmpty {
                     Toggle("Seluruh pustaka", isOn: $library.searchAllFolders)
                         .toggleStyle(.checkbox)
@@ -454,8 +461,14 @@ struct LibraryView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text(String(format: InterfaceLocalization.string("%d buku · %d folder", locale: locale),
-                                library.visibleBooks.count, library.visibleFolders.count))
+                    let videoCount = library.visibleBooks.filter { $0.format == .video }.count
+                    let bookCount = library.visibleBooks.count - videoCount
+                    Text(videoCount == 0
+                         ? String(format: InterfaceLocalization.string("%d buku · %d folder", locale: locale),
+                                  bookCount, library.visibleFolders.count)
+                         : String(format: InterfaceLocalization.string(
+                            "%d buku · %d video · %d folder", locale: locale),
+                            bookCount, videoCount, library.visibleFolders.count))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -485,10 +498,10 @@ struct LibraryView: View {
                 .background(AppTheme.quietAccent,
                             in: RoundedRectangle(cornerRadius: 15))
             Text(library.isScanning ? "Memindai pustaka…" :
-                 (library.search.isEmpty ? "Belum ada buku di folder ini" : "Tidak ada hasil"))
+                 (library.search.isEmpty ? "Belum ada item di folder ini" : "Tidak ada hasil"))
                 .font(.title3.weight(.semibold))
             Text(library.search.isEmpty
-                 ? "Buku PDF, EPUB, TXT, dan DOCX dari folder ini akan muncul di sini."
+                 ? "Buku PDF, EPUB, TXT, DOCX, dan video dari folder ini akan muncul di sini."
                  : "Coba kata kunci lain atau cari di semua folder pustaka.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -522,7 +535,7 @@ struct LibraryView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 if library.selectedFolder.isEmpty && library.search.isEmpty,
-                   let recent = library.books
+                   let recent = library.books.filter({ $0.format != .video })
                     .filter({ library.progressStore.value(for: $0.id) != nil })
                     .max(by: { (library.progressStore.value(for: $0.id)?.lastOpened ?? .distantPast) <
                                 (library.progressStore.value(for: $1.id)?.lastOpened ?? .distantPast) }) {
@@ -579,7 +592,7 @@ struct LibraryView: View {
                 }
 
                 HStack {
-                    Text(LocalizedStringKey(library.search.isEmpty ? "Buku" : "Hasil pencarian"))
+                    Text(LocalizedStringKey(library.search.isEmpty ? "Buku dan Video" : "Hasil pencarian"))
                         .font(.title3.weight(.semibold))
                 }
                 if library.listMode {
@@ -703,7 +716,15 @@ private struct BookGridCard: View {
                 BookCoverImage(book: book)
                     .aspectRatio(0.72, contentMode: .fit)
                     .overlay(alignment: .bottom) {
-                        if library.progressStore.value(for: book.id) != nil {
+                        if book.format == .video,
+                           let progress = library.videoProgressStore.value(for: book.id) {
+                            VideoProgressBar(progress: progress, title: book.title)
+                                .padding(6)
+                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
+                                .padding(.horizontal, 8)
+                                .padding(.bottom, 8)
+                        } else if book.format != .video,
+                                  library.progressStore.value(for: book.id) != nil {
                             BookProgressBar(book: book, showsLabel: false)
                                 .padding(6)
                                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
@@ -716,7 +737,7 @@ private struct BookGridCard: View {
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(2)
                     HStack(spacing: 6) {
-                        Text(book.format.rawValue.uppercased())
+                        Text(book.formatLabel)
                             .font(.caption2.weight(.medium))
                             .foregroundStyle(.secondary)
                         Spacer(minLength: 0)
@@ -747,7 +768,7 @@ private struct BookGridCard: View {
             library.open(book)
             return .handled
         }
-        .contextMenu { Button("Buka Buku") { library.open(book) } }
+        .contextMenu { bookContextMenu(book, library: library) }
         .help(book.relativePath)
     }
 }
@@ -767,7 +788,8 @@ private struct BookListRow: View {
                     .frame(width: 38, height: 52)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(book.title).font(.subheadline.weight(.semibold)).lineLimit(1)
-                    Text(book.relativePath).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text("\(book.formatLabel) · \(book.relativePath)")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
                 if library.unavailableBookIDs.contains(book.id) {
@@ -777,7 +799,12 @@ private struct BookListRow: View {
                             library.activeRoot?.cloudBacked == true
                                 ? "Buka untuk mencoba mengunduh lagi" : "Temukan file",
                             locale: InterfaceLocalization.currentLocale))
-                } else if library.progressStore.value(for: book.id) != nil {
+                } else if book.format == .video,
+                          let progress = library.videoProgressStore.value(for: book.id) {
+                    VideoProgressBar(progress: progress, title: book.title)
+                        .frame(width: 112)
+                } else if book.format != .video,
+                          library.progressStore.value(for: book.id) != nil {
                     BookProgressBar(book: book, showsLabel: false)
                         .frame(width: 112)
                 }
@@ -797,7 +824,44 @@ private struct BookListRow: View {
             library.open(book)
             return .handled
         }
-        .contextMenu { Button("Buka Buku") { library.open(book) } }
+        .contextMenu { bookContextMenu(book, library: library) }
+    }
+}
+
+@MainActor @ViewBuilder private func bookContextMenu(_ book: BookFile,
+                                                     library: LibraryModel) -> some View {
+    if book.format == .video {
+        Button("Putar Video") { library.open(book) }
+        Menu("Tandai progres manual") {
+            ForEach([25, 50, 75, 100], id: \.self) { percent in
+                Button("\(percent)%") { library.setVideoProgress(percent, for: book) }
+            }
+        }
+        if library.videoProgressStore.value(for: book.id) != nil {
+            Button("Hapus progres manual") { library.setVideoProgress(nil, for: book) }
+        }
+    } else {
+        Button("Buka Buku") { library.open(book) }
+    }
+}
+
+private struct VideoProgressBar: View {
+    let progress: VideoProgress
+    let title: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ProgressView(value: Double(progress.percent), total: 100)
+                .tint(AppTheme.accent)
+            Text("Manual · \(progress.percent)%")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .help("Progres manual · \(progress.percent)%")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Progres manual \(title)")
+        .accessibilityValue("\(progress.percent)%")
     }
 }
 
@@ -819,6 +883,7 @@ private struct BookProgressBar: View {
             case .pdf: progress.pdfPageCount = measuredCount
             case .epub: progress.epubChapterCount = measuredCount
             case .txt, .docx: progress.pdfPageCount = measuredCount
+            case .video: break
             }
         }
         return VStack(alignment: .leading, spacing: 3) {
@@ -848,6 +913,7 @@ private struct BookProgressBar: View {
             case .pdf: library.progressStore.savePDFPageCount(book.id, count: count)
             case .epub: library.progressStore.saveEPUB(book.id, chapterCount: count)
             case .txt, .docx: library.progressStore.savePDFPageCount(book.id, count: count)
+            case .video: break
             }
             measuredCount = count
         }
@@ -878,11 +944,12 @@ private struct BookCoverImage: View {
                 } else {
                     VStack(spacing: 7) {
                         Image(systemName: needsDownload ? "cloud.and.arrow.down" :
-                            (book.format == .pdf ? "doc.richtext" : "book.closed"))
+                            (book.format == .pdf ? "doc.richtext" :
+                             (book.format == .video ? "play.rectangle" : "book.closed")))
                             .font(.system(size: min(geometry.size.width * 0.28, 42),
                                           weight: .ultraLight))
                         if geometry.size.width > 70 {
-                            Text(book.format.rawValue.uppercased())
+                            Text(book.formatLabel)
                                 .font(.caption2.monospaced())
                         }
                     }

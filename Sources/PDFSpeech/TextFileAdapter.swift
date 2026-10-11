@@ -4,6 +4,46 @@ import ZIPFoundation
 struct TextFileDocument: Sendable {
     let paragraphs: [String]
     let segments: [SpokenSegment]
+    let chapters: [TextFileChapter]
+}
+
+struct TextFileChapter: Sendable, Equatable {
+    let title: String
+    let segmentRange: Range<Int>
+}
+
+enum TextFileChaptering {
+    private static let heading = try! NSRegularExpression(
+        pattern: "^(?:bab|chapter|bagian|part)\\s+(?:[0-9]+|[ivxlcdm]+)(?:[\\s.:—–-]+.*)?$",
+        options: [.caseInsensitive])
+
+    static func chapters(paragraphs: [String], segments: [SpokenSegment]) -> [TextFileChapter] {
+        guard !segments.isEmpty else { return [] }
+        let starts = paragraphs.enumerated().compactMap { index, text -> (Int, String)? in
+            let singleLine = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard singleLine.count <= 100, !singleLine.contains("\n"),
+                  heading.firstMatch(in: singleLine,
+                                     range: NSRange(singleLine.startIndex..., in: singleLine)) != nil,
+                  let firstSegment = segments.firstIndex(where: { $0.paragraph == index }) else {
+                return nil
+            }
+            return (firstSegment, singleLine)
+        }
+        guard !starts.isEmpty else {
+            return [TextFileChapter(title: "Buku lengkap", segmentRange: 0..<segments.count)]
+        }
+        var chapters: [TextFileChapter] = []
+        if starts[0].0 > 0 {
+            chapters.append(TextFileChapter(title: "Pembuka", segmentRange: 0..<starts[0].0))
+        }
+        for (index, start) in starts.enumerated() {
+            let end = index + 1 < starts.count ? starts[index + 1].0 : segments.count
+            if start.0 < end {
+                chapters.append(TextFileChapter(title: start.1, segmentRange: start.0..<end))
+            }
+        }
+        return chapters
+    }
 }
 
 enum TextFileError: LocalizedError {
@@ -64,7 +104,9 @@ enum TextFileAdapter {
         }
         let segments = TextSegments.fromParagraphs(paragraphs, chapter: 0)
         guard !segments.isEmpty else { throw TextFileError.noText }
-        return TextFileDocument(paragraphs: paragraphs, segments: segments)
+        return TextFileDocument(paragraphs: paragraphs, segments: segments,
+                                chapters: TextFileChaptering.chapters(
+                                    paragraphs: paragraphs, segments: segments))
     }
 }
 

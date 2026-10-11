@@ -83,6 +83,7 @@ struct BookProgressValue {
         case .txt, .docx:
             guard let count = pdfPageCount, count > 0 else { return 0 }
             return Double(min(max(sentenceIndex, 0), count - 1) + 1) / Double(count)
+        case .video: return 0
         }
     }
 
@@ -105,6 +106,7 @@ struct BookProgressValue {
             case .txt, .docx:
                 guard let count = pdfPageCount, count > 0 else { return "Not read yet" }
                 return "Sentence \(min(max(sentenceIndex, 0), count - 1) + 1) of \(count)"
+            case .video: return "Progress is manual"
             }
         }
         if finished { return "Selesai" }
@@ -124,6 +126,7 @@ struct BookProgressValue {
         case .txt, .docx:
             guard let count = pdfPageCount, count > 0 else { return "Belum dibaca" }
             return "Kalimat \(min(max(sentenceIndex, 0), count - 1) + 1) dari \(count)"
+        case .video: return "Progres manual"
         }
     }
 }

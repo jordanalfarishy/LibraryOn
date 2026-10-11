@@ -15,7 +15,7 @@ enum CloudFileAccess {
 
     // A coordinated read asks iCloud Drive or a File Provider extension to
     // materialize the item. This can wait for the network, so call it off main.
-    static func prepareForReading(_ url: URL, accessRoot: URL? = nil) throws {
+    static func prepareForReading(_ url: URL, accessRoot: URL? = nil) async throws {
         guard !Task.isCancelled else { throw CancellationError() }
         let accessStarted = accessRoot?.startAccessingSecurityScopedResource() == true
         defer {
@@ -31,16 +31,21 @@ enum CloudFileAccess {
         let coordinator = NSFileCoordinator(filePresenter: nil)
         var coordinationError: NSError?
         var readError: Error?
-        coordinator.coordinate(readingItemAt: url, options: [], error: &coordinationError) {
-            coordinatedURL in
-            do {
-                let handle = try FileHandle(forReadingFrom: coordinatedURL)
-                defer { try? handle.close() }
-                _ = try handle.read(upToCount: 1)
-            } catch {
-                readError = error
+        await withTaskCancellationHandler {
+            coordinator.coordinate(readingItemAt: url, options: [], error: &coordinationError) {
+                coordinatedURL in
+                do {
+                    let handle = try FileHandle(forReadingFrom: coordinatedURL)
+                    defer { try? handle.close() }
+                    _ = try handle.read(upToCount: 1)
+                } catch {
+                    readError = error
+                }
             }
+        } onCancel: {
+            coordinator.cancel()
         }
+        guard !Task.isCancelled else { throw CancellationError() }
         if let coordinationError { throw coordinationError }
         if let readError { throw readError }
         guard !Task.isCancelled else { throw CancellationError() }

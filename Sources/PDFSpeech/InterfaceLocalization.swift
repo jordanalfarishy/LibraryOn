@@ -31,7 +31,9 @@ enum InterfaceLocalization {
             ("Teks PDF gagal disiapkan: ", "", "Teks PDF gagal disiapkan: %@"),
             ("Buku EPUB tidak dapat ditampilkan: ", "", "Buku EPUB tidak dapat ditampilkan: %@"),
             ("Gagal menyimpan penanda: ", "", "Gagal menyimpan penanda: %@"),
-            ("Gagal menghapus penanda: ", "", "Gagal menghapus penanda: %@")
+            ("Gagal menghapus penanda: ", "", "Gagal menghapus penanda: %@"),
+            ("Tata balon belum tersimpan: ", "", "Tata balon belum tersimpan: %@"),
+            ("Video tidak dapat dibuka: ", "", "Video tidak dapat dibuka: %@")
         ]
         for pattern in patterns where key.hasPrefix(pattern.prefix) && key.hasSuffix(pattern.suffix) {
             let value = String(key.dropFirst(pattern.prefix.count).dropLast(pattern.suffix.count))

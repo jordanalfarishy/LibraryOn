@@ -1,12 +1,22 @@
 import AppKit
 import Foundation
 import Observation
+import UniformTypeIdentifiers
 
 enum BookFormat: String, Codable, Sendable {
     case pdf
     case epub
     case txt
     case docx
+    case video
+
+    static func detect(_ url: URL) -> BookFormat? {
+        let ext = url.pathExtension.lowercased()
+        if let format = BookFormat(rawValue: ext) { return format }
+        let videoExtensions: Set<String> = ["mp4", "m4v", "mov", "avi", "mkv", "webm"]
+        if videoExtensions.contains(ext) { return .video }
+        return UTType(filenameExtension: ext)?.conforms(to: .movie) == true ? .video : nil
+    }
 }
 
 struct BookFile: Identifiable, Hashable, Sendable {
@@ -18,6 +28,9 @@ struct BookFile: Identifiable, Hashable, Sendable {
     let format: BookFormat
     let size: Int64
     let modifiedAt: Date
+    var formatLabel: String {
+        format == .video ? url.pathExtension.uppercased() : format.rawValue.uppercased()
+    }
 }
 
 struct FolderEntry: Identifiable, Hashable, Sendable {
@@ -56,7 +69,7 @@ enum FolderScanner {
         let standardized = url.standardizedFileURL
         let prefix = root.standardizedFileURL.path + "/"
         guard standardized.path.hasPrefix(prefix),
-              let format = BookFormat(rawValue: standardized.pathExtension.lowercased()),
+              let format = BookFormat.detect(standardized),
               let values = try? standardized.resourceValues(forKeys: [
                 .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey
               ]),
@@ -136,7 +149,7 @@ enum FolderScanner {
                 continue
             }
             guard values.isRegularFile == true,
-                  let format = BookFormat(rawValue: url.pathExtension.lowercased()) else { continue }
+                  let format = BookFormat.detect(url) else { continue }
             var info = stat()
             let identity: String
             if cloudBacked {
@@ -208,6 +221,7 @@ struct RootRecord: Codable, Identifiable {
     var isClearingCache = false
     var cacheRevision = 0
     var progressRevision = 0
+    var videoProgressRevision = 0
     var activeBook: BookFile?
     private(set) var playbackBook: BookFile?
     private(set) var playbackPlayer: SpeechPlayer?
@@ -233,6 +247,7 @@ struct RootRecord: Codable, Identifiable {
     @ObservationIgnored private let bookmarkCreator: (URL) throws -> Data
     @ObservationIgnored private let indexStore: LibraryIndexStore
     @ObservationIgnored let progressStore: ProgressStore
+    @ObservationIgnored let videoProgressStore: VideoProgressStore
     @ObservationIgnored let annotationsStore: ReadingAnnotationsStore
 
     init(preferences: UserDefaults = .standard, progressStore: ProgressStore? = nil,
@@ -242,6 +257,7 @@ struct RootRecord: Codable, Identifiable {
          indexStore: LibraryIndexStore = LibraryIndexStore()) {
         self.preferences = preferences
         self.progressStore = progressStore ?? ProgressStore()
+        self.videoProgressStore = VideoProgressStore(defaults: preferences)
         self.annotationsStore = annotationsStore ?? ReadingAnnotationsStore()
         self.indexStore = indexStore
         self.rootResolver = rootResolver ?? { record in
@@ -619,6 +635,11 @@ struct RootRecord: Codable, Identifiable {
 
     func open(_ book: BookFile) {
         if unavailableBookIDs.contains(book.id), activeRoot?.cloudBacked != true {
+            if book.format == .video {
+                selectedBookID = book.id
+                scanError = "File video tidak tersedia. Segarkan folder lalu coba lagi."
+                return
+            }
             relinkBook(book)
             return
         }
@@ -642,7 +663,7 @@ struct RootRecord: Codable, Identifiable {
         scanError = nil
         cloudOpenTask = Task { [weak self] in
             let worker = Task.detached(priority: .userInitiated) {
-                try CloudFileAccess.prepareForReading(book.url, accessRoot: accessRoot)
+                try await CloudFileAccess.prepareForReading(book.url, accessRoot: accessRoot)
             }
             do {
                 try await withTaskCancellationHandler {
@@ -695,10 +716,45 @@ struct RootRecord: Codable, Identifiable {
             return
         }
         if changedBookIDs.contains(book.id) {
+            if book.format == .video {
+                changedBookIDs.remove(book.id)
+                scanError = nil
+                openVideo(book)
+                return
+            }
             pendingChangedBook = book
             return
         }
+        if book.format == .video {
+            openVideo(book)
+            return
+        }
         openNow(book)
+    }
+
+    private func openVideo(_ book: BookFile) {
+        selectedBookID = book.id
+        let rootID = activeRootID
+        guard NSWorkspace.shared.urlForApplication(toOpen: book.url) != nil else {
+            scanError = "Tidak ada aplikasi pemutar untuk format video ini. Pilih pemutar default di Finder lalu coba lagi."
+            return
+        }
+        NSWorkspace.shared.open(book.url, configuration: NSWorkspace.OpenConfiguration()) { [weak self]
+            _, error in
+            Task { @MainActor [weak self] in
+                guard let self, self.activeRootID == rootID,
+                      self.selectedBookID == book.id else { return }
+                self.scanError = error.map {
+                    "Video tidak dapat dibuka: \($0.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    func setVideoProgress(_ percent: Int?, for book: BookFile) {
+        guard book.format == .video else { return }
+        videoProgressStore.save(percent, for: book.id)
+        videoProgressRevision += 1
     }
 
     func confirmOpenChangedBook() {
@@ -841,8 +897,10 @@ struct RootRecord: Codable, Identifiable {
 
     func resetReadingData() {
         if progressStore.resetAll() {
+            videoProgressStore.resetAll()
             selectedBookID = nil
             progressRevision += 1
+            videoProgressRevision += 1
             dataNotice = "Semua progres dan penanda bacaan telah direset."
         } else {
             dataNotice = progressStore.storageError ?? "Progres bacaan tidak dapat direset."

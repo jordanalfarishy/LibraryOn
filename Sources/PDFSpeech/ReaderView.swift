@@ -13,6 +13,7 @@ struct ReaderView: View {
             case .pdf: PDFReaderView(book: book, isVisible: isVisible)
             case .epub: EPUBReaderView(book: book, isVisible: isVisible)
             case .txt, .docx: TextFileReaderView(book: book, isVisible: isVisible)
+            case .video: EmptyView()
             }
         }
         .navigationTitle(isVisible ? book.title : "")
@@ -213,7 +214,8 @@ struct PlayerControls<Leading: View>: View {
                         player.changeVoice(voice.identifier)
                         onPreferenceChange?()
                     } label: {
-                        Label(voice.name, systemImage: player.voiceIdentifier == voice.identifier
+                        Label("\(voice.name) · \(SpeechPlayer.qualityLabel(for: voice))",
+                              systemImage: player.voiceIdentifier == voice.identifier
                               ? "checkmark" : "waveform")
                     }
                 }

@@ -37,4 +37,18 @@ final class TextFileAdapterTests: XCTestCase {
         XCTAssertEqual(Set(snapshot.books.map(\.format)), [.txt, .docx])
         XCTAssertEqual(snapshot.books.count, 3)
     }
+
+    func testChapteredAudiobookRangesFollowHeadingsWithoutDroppingIntroduction() {
+        let paragraphs = ["Preface text.", "Bab 1: Mulai", "One sentence.",
+                          "Chapter 2 — Continue", "Another sentence."]
+        let segments = TextSegments.fromParagraphs(paragraphs, chapter: 0)
+        let chapters = TextFileChaptering.chapters(paragraphs: paragraphs, segments: segments)
+        XCTAssertEqual(chapters.map(\.title), ["Pembuka", "Bab 1: Mulai", "Chapter 2 — Continue"])
+        XCTAssertEqual(chapters.map(\.segmentRange), [0..<1, 1..<3, 3..<5])
+        XCTAssertEqual(chapters.flatMap { segments[$0.segmentRange] }.count, segments.count)
+        let single = TextFileChaptering.chapters(
+            paragraphs: ["A page without headings."],
+            segments: TextSegments.fromParagraphs(["A page without headings."], chapter: 0))
+        XCTAssertEqual(single.map(\.title), ["Buku lengkap"])
+    }
 }

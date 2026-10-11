@@ -1,12 +1,12 @@
 # LibraryOn
 
-LibraryOn is a native macOS app for browsing folders of PDF, EPUB, TXT, and DOCX books, reading them, and listening with installed system voices. Books stay in their original folders; the app stores its index, reading positions, bookmarks, and rebuildable cache locally.
+LibraryOn is a native macOS app for browsing folders of PDF, EPUB, TXT, and DOCX books, reading them, and listening with installed system voices. The library also lists videos and opens them in the default macOS player. Files stay in their original folders; the app stores its index, reading positions, bookmarks, and rebuildable cache locally.
 
-_Bahasa Indonesia: LibraryOn membantu menjelajahi folder PDF/EPUB/TXT/DOCX, membaca, dan mendengarkan buku dengan suara sistem. File buku tetap di folder asal. [PRD berbahasa Indonesia](PRD.md) memuat rancangan dan status lengkap._
+_Bahasa Indonesia: LibraryOn membantu menjelajahi folder PDF/EPUB/TXT/DOCX, membaca, dan mendengarkan buku dengan suara sistem. Video juga tampil di pustaka dan dibuka lewat pemutar default macOS. File tetap di folder asal. [PRD berbahasa Indonesia](PRD.md) memuat rancangan dan status lengkap._
 
 ## Project status
 
-This repository contains a **prototype**, currently version **0.6.2 (20)**. The M0–M3 implementation gates have passed. M4 verification and the B01–B07 backlog gates remain open where noted. The local app build uses an ad-hoc signature. There is no notarized release or verified clean-Mac installer yet. The earlier [M4 local beta package](Docs/M4-local-beta.md) remains version 0.5.3.
+This repository contains a **prototype**, currently version **0.7.0 (21)**. The M0–M3 implementation gates have passed. M4 verification and the B01–B12 backlog gates remain open where noted. The local app build uses an ad-hoc signature. There is no notarized release or verified clean-Mac installer yet. The earlier [M4 local beta package](Docs/M4-local-beta.md) remains version 0.5.3.
 
 ## Requirements and build
 
@@ -20,7 +20,7 @@ bash Scripts/build-app.sh
 open dist/LibraryOn.app
 ```
 
-The build uses vendored dependencies and creates `dist/LibraryOn.app`. A local QA archive of version 0.6.2 is available at [LibraryOn-0.6.2-local.zip](dist/LibraryOn-0.6.2-local.zip). Reopen the app after rebuilding. The generated `dist/` and `.build/` directories are ignored by Git. Run the test suite with `swift test` on macOS. The optional 1,000-book/FSEvents benchmark is documented in [M4 validation](Docs/M4-validation.md).
+The build uses vendored dependencies and creates `dist/LibraryOn.app`. A local QA archive of version 0.7.0 is available at [LibraryOn-0.7.0-local.zip](dist/LibraryOn-0.7.0-local.zip). Reopen the app after rebuilding. The generated `dist/` and `.build/` directories are ignored by Git. Run the test suite with `swift test` on macOS. The optional 1,000-book/FSEvents benchmark is documented in [M4 validation](Docs/M4-validation.md).
 
 ## What works now
 

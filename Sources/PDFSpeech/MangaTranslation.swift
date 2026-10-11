@@ -471,6 +471,11 @@ struct MangaTranslationPanel: View {
     @State private var translationRevision = 0
     @State private var editingBlockID: Int?
     @State private var editedSource = ""
+    @State private var arrangement = MangaPageArrangement()
+    @State private var isArranging = false
+    @State private var selectedBlockIDs: Set<Int> = []
+    @State private var isBatchEditing = false
+    @State private var batchSources: [Int: String] = [:]
 
     private var sourceLanguage: Locale.Language { Locale.Language(identifier: "ja") }
     private var targetLanguage: Locale.Language { Locale.Language(identifier: targetCode) }
@@ -482,6 +487,9 @@ struct MangaTranslationPanel: View {
     }
     private var pageKey: String {
         "manga-v4:\(ocrKey):ja:\(targetCode)"
+    }
+    private var arrangementKey: String {
+        "manga-layout-v1:\(ocrKey)"
     }
 
     var body: some View {
@@ -537,6 +545,29 @@ struct MangaTranslationPanel: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
+            if !blocks.isEmpty {
+                HStack(spacing: 8) {
+                    Button(isArranging ? "Selesai" : "Atur balon") {
+                        isArranging.toggle()
+                        selectedBlockIDs.removeAll()
+                        editingBlockID = nil
+                    }
+                    Spacer()
+                    if isArranging {
+                        Button("Edit terpilih") { openBatchEditor() }
+                            .disabled(selectedBlockIDs.isEmpty)
+                        Button("Gabungkan") {
+                            arrangement.combine(selectedBlockIDs)
+                            selectedBlockIDs.removeAll()
+                            persistArrangement()
+                        }
+                        .disabled(selectedBlockIDs.count < 2)
+                    }
+                }
+                .font(.caption)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
+            }
             Divider()
             if isPreparing && blocks.isEmpty {
                 ProgressView("Mengenali teks halaman…")
@@ -562,69 +593,39 @@ struct MangaTranslationPanel: View {
                             Text(InterfaceLocalization.string(message, locale: locale))
                                 .foregroundStyle(.orange).font(.caption)
                         }
-                        ForEach(blocks) { block in
-                            VStack(alignment: .leading, spacing: 6) {
+                        ForEach(arrangement.balloons.indices, id: \.self) { balloonIndex in
+                            VStack(alignment: .leading, spacing: 8) {
                                 HStack {
-                                    Text(String(format: InterfaceLocalization.string("Dialog %d", locale: locale),
-                                                block.id + 1))
-                                        .font(.caption2.weight(.semibold))
-                                        .foregroundStyle(.secondary)
-                                    Spacer()
-                                    Button {
-                                        highlightedBlockID = highlightedBlockID == block.id
-                                            ? nil : block.id
-                                        publishOverlay()
-                                    } label: {
-                                        Image(systemName: highlightedBlockID == block.id
-                                              ? "viewfinder.circle.fill" : "viewfinder.circle")
+                                    if isArranging || arrangement.balloons[balloonIndex].count > 1 {
+                                        Text("Balon \(balloonIndex + 1)")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.secondary)
                                     }
-                                    .disabled(block.bounds == nil)
-                                    .help(InterfaceLocalization.string(
-                                        highlightedBlockID == block.id
-                                            ? "Hapus sorotan di halaman" : "Sorot lokasi di halaman",
-                                        locale: locale))
-                                    .accessibilityLabel(InterfaceLocalization.string(
-                                        highlightedBlockID == block.id
-                                            ? "Hapus sorotan di halaman" : "Sorot lokasi di halaman",
-                                        locale: locale))
-                                    Button(editingBlockID == block.id ? "Batal" : "Koreksi OCR") {
-                                        if editingBlockID == block.id {
-                                            editingBlockID = nil
-                                        } else {
-                                            editingBlockID = block.id
-                                            editedSource = block.source
+                                    Spacer()
+                                    if isArranging {
+                                        Button { moveBalloon(at: balloonIndex, by: -1) } label: {
+                                            Image(systemName: "arrow.up")
+                                        }
+                                        .disabled(balloonIndex == 0)
+                                        .help("Pindah balon ke atas")
+                                        Button { moveBalloon(at: balloonIndex, by: 1) } label: {
+                                            Image(systemName: "arrow.down")
+                                        }
+                                        .disabled(balloonIndex == arrangement.balloons.count - 1)
+                                        .help("Pindah balon ke bawah")
+                                        if arrangement.balloons[balloonIndex].count > 1 {
+                                            Button("Pisahkan") {
+                                                arrangement.separate(balloonAt: balloonIndex)
+                                                persistArrangement()
+                                            }
+                                            .font(.caption2)
                                         }
                                     }
-                                    .font(.caption2)
                                 }
-                                if let confidence = block.confidence, confidence < 0.25 {
-                                    Label("OCR perlu diperiksa", systemImage: "exclamationmark.triangle")
-                                        .font(.caption2).foregroundStyle(.orange)
-                                }
-                                if editingBlockID == block.id {
-                                    TextEditor(text: $editedSource)
-                                        .frame(minHeight: 64)
-                                        .border(.separator)
-                                    Button("Simpan dan terjemahkan ulang") {
-                                        saveCorrection(for: block)
+                                ForEach(arrangement.balloons[balloonIndex], id: \.self) { id in
+                                    if blocks.indices.contains(id) {
+                                        dialogRow(blocks[id])
                                     }
-                                    .disabled(editedSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                                    .font(.caption)
-                                } else {
-                                    Text(block.source)
-                                        .font(.caption).foregroundStyle(.secondary)
-                                        .textSelection(.enabled)
-                                }
-                                if failedBlockIDs.contains(block.id) {
-                                    Text("Terjemahan gagal · teks asli")
-                                        .font(.caption2)
-                                        .foregroundStyle(.orange)
-                                }
-                                if !showOriginal {
-                                    Text(translated.indices.contains(block.id)
-                                         ? translated[block.id] : block.source)
-                                        .font(.callout)
-                                        .textSelection(.enabled)
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -639,6 +640,7 @@ struct MangaTranslationPanel: View {
         }
         .frame(width: 320)
         .background(.regularMaterial)
+        .sheet(isPresented: $isBatchEditing) { batchEditor }
         .task(id: pageKey) { await preparePage() }
         .translationTask(configuration) { session in
             await translatePage(using: session)
@@ -659,6 +661,142 @@ struct MangaTranslationPanel: View {
         .onDisappear { onOverlayChange([]) }
     }
 
+    @ViewBuilder private func dialogRow(_ block: MangaTextBlock) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                if isArranging {
+                    Toggle("", isOn: Binding(
+                        get: { selectedBlockIDs.contains(block.id) },
+                        set: { selected in
+                            if selected { selectedBlockIDs.insert(block.id) }
+                            else { selectedBlockIDs.remove(block.id) }
+                        }
+                    ))
+                    .labelsHidden()
+                    .accessibilityLabel("Pilih dialog \(block.id + 1)")
+                }
+                Text(String(format: InterfaceLocalization.string("Dialog %d", locale: locale),
+                            block.id + 1))
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    highlightedBlockID = highlightedBlockID == block.id ? nil : block.id
+                    publishOverlay()
+                } label: {
+                    Image(systemName: highlightedBlockID == block.id
+                          ? "viewfinder.circle.fill" : "viewfinder.circle")
+                }
+                .disabled(block.bounds == nil)
+                .help(InterfaceLocalization.string(
+                    highlightedBlockID == block.id
+                        ? "Hapus sorotan di halaman" : "Sorot lokasi di halaman", locale: locale))
+                Button(editingBlockID == block.id ? "Batal" : "Koreksi OCR") {
+                    if editingBlockID == block.id { editingBlockID = nil }
+                    else { editingBlockID = block.id; editedSource = block.source }
+                }
+                .font(.caption2)
+            }
+            if let confidence = block.confidence, confidence < 0.25 {
+                Label("OCR perlu diperiksa", systemImage: "exclamationmark.triangle")
+                    .font(.caption2).foregroundStyle(.orange)
+            }
+            if editingBlockID == block.id {
+                TextEditor(text: $editedSource)
+                    .frame(minHeight: 64)
+                    .border(.separator)
+                Button("Simpan dan terjemahkan ulang") { saveCorrection(for: block) }
+                    .disabled(editedSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .font(.caption)
+            } else {
+                Text(block.source)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            if failedBlockIDs.contains(block.id) {
+                Text("Terjemahan gagal · teks asli")
+                    .font(.caption2).foregroundStyle(.orange)
+            }
+            if !showOriginal {
+                Text(translated.indices.contains(block.id)
+                     ? translated[block.id] : block.source)
+                    .font(.callout).textSelection(.enabled)
+            }
+        }
+        .padding(.vertical, 3)
+    }
+
+    private var batchEditor: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Koreksi beberapa dialog")
+                .font(.headline)
+            Text("Periksa teks hasil OCR. Perubahan disimpan untuk halaman ini dan terjemahan dibuat ulang.")
+                .font(.caption).foregroundStyle(.secondary)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(arrangement.balloons.flatMap { $0 }.filter {
+                        selectedBlockIDs.contains($0)
+                    }, id: \.self) { id in
+                        if blocks.indices.contains(id) {
+                            VStack(alignment: .leading) {
+                                Text("Dialog \(id + 1)").font(.caption.weight(.semibold))
+                                TextEditor(text: Binding(
+                                    get: { batchSources[id] ?? "" },
+                                    set: { batchSources[id] = $0 }
+                                ))
+                                .frame(minHeight: 68)
+                                .border(.separator)
+                            }
+                        }
+                    }
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Batal") { isBatchEditing = false }
+                Button("Simpan dan terjemahkan ulang") { saveBatchCorrections() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(selectedBlockIDs.contains {
+                        (batchSources[$0] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    })
+            }
+        }
+        .padding(20)
+        .frame(width: 460, height: 440)
+    }
+
+    @MainActor private func openBatchEditor() {
+        batchSources = Dictionary(uniqueKeysWithValues: selectedBlockIDs.compactMap { id in
+            blocks.indices.contains(id) ? (id, blocks[id].source) : nil
+        })
+        isBatchEditing = true
+    }
+
+    @MainActor private func saveBatchCorrections() {
+        let corrections = batchSources.filter { selectedBlockIDs.contains($0.key) }
+        isBatchEditing = false
+        selectedBlockIDs.removeAll()
+        applyCorrections(corrections)
+    }
+
+    @MainActor private func moveBalloon(at index: Int, by offset: Int) {
+        arrangement.moveBalloon(at: index, by: offset)
+        persistArrangement()
+    }
+
+    @MainActor private func persistArrangement() {
+        let value = arrangement
+        let key = arrangementKey
+        Task {
+            do { try await MangaPageArrangementStore.shared.save(value, for: key) }
+            catch {
+                if pageKey == key {
+                    message = "Tata balon belum tersimpan: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
     @MainActor private func preparePage() async {
         let key = pageKey
         let recognitionKey = ocrKey
@@ -675,16 +813,25 @@ struct MangaTranslationPanel: View {
         failedBlockIDs = []
         message = nil
         isPreparing = true
+        selectedBlockIDs.removeAll()
+        isBatchEditing = false
+        let savedArrangement = await MangaPageArrangementStore.shared.load(for: arrangementKey)
+        guard !Task.isCancelled, pageKey == key else { return }
         if let cached = await MangaTranslationCache.shared.value(for: key) {
             guard !Task.isCancelled, pageKey == key else { return }
             await MangaTranslationCache.shared.setOCRBlocks(cached.blocks, for: recognitionKey)
             guard !Task.isCancelled, pageKey == key else { return }
-            blocks = cached.blocks
-            translated = cached.translations
-            completedTranslationCount = cached.blocks.count
-            isPreparing = false
-            publishOverlay()
-            return
+            let layout = (savedArrangement ?? MangaPageArrangement()).normalized(for: cached.blocks)
+            arrangement = layout
+            let corrected = layout.applyingCorrections(to: cached.blocks)
+            if corrected.map(\.source) == cached.blocks.map(\.source) {
+                blocks = corrected
+                translated = cached.translations
+                completedTranslationCount = cached.blocks.count
+                isPreparing = false
+                publishOverlay()
+                return
+            }
         }
         let availability = LanguageAvailability()
         let initialStatus = await availability.status(from: sourceLanguage, to: targetLanguage)
@@ -712,9 +859,10 @@ struct MangaTranslationPanel: View {
                 await MangaTranslationCache.shared.setOCRBlocks(found, for: recognitionKey)
             }
             guard !Task.isCancelled, pageKey == key else { return }
-            blocks = found
+            arrangement = (savedArrangement ?? MangaPageArrangement()).normalized(for: found)
+            blocks = arrangement.applyingCorrections(to: found)
             publishOverlay()
-            if found.isEmpty {
+            if blocks.isEmpty {
                 isPreparing = false
                 message = "Tidak ada teks Jepang yang terbaca pada halaman ini."
                 return
@@ -817,8 +965,20 @@ struct MangaTranslationPanel: View {
     @MainActor private func saveCorrection(for block: MangaTextBlock) {
         let corrected = editedSource.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !corrected.isEmpty, blocks.indices.contains(block.id) else { return }
-        blocks[block.id] = MangaTextBlock(id: block.id, source: corrected,
-                                         bounds: block.bounds, confidence: 1)
+        applyCorrections([block.id: corrected])
+    }
+
+    @MainActor private func applyCorrections(_ corrections: [Int: String]) {
+        guard !corrections.isEmpty else { return }
+        for (id, value) in corrections where blocks.indices.contains(id) {
+            let corrected = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !corrected.isEmpty else { continue }
+            let original = blocks[id]
+            blocks[id] = MangaTextBlock(id: id, source: corrected,
+                                        bounds: original.bounds, confidence: 1)
+            arrangement.correctedSources[id] = corrected
+        }
+        persistArrangement()
         editingBlockID = nil
         highlightedBlockID = nil
         translationRevision += 1

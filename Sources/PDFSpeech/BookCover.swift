@@ -27,7 +27,7 @@ actor BookCoverStore {
         case .epub:
             guard let content = EPUBFirstPage.read(fromArchive: book.url) else { return nil }
             rendered = FirstPageRenderer.epub(content)
-        case .txt, .docx: return nil
+        case .txt, .docx, .video: return nil
         }
         guard let rendered, !Task.isCancelled else { return nil }
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -43,6 +43,7 @@ enum BookLength {
         case .pdf: return PDFDocument(url: book.url)?.pageCount
         case .epub: return EPUBFirstPage.spineCount(fromArchive: book.url)
         case .txt, .docx: return try? TextFileAdapter.load(book).segments.count
+        case .video: return nil
         }
     }
 }

@@ -8,6 +8,44 @@ import XCTest
 @testable import PDFSpeech
 
 final class MangaTranslationTests: XCTestCase {
+    func testPageArrangementGroupsPartialSelectionAndPreservesEveryDialogue() async throws {
+        let blocks = (0..<5).map {
+            MangaTextBlock(id: $0, source: "dialog \($0)", bounds: nil)
+        }
+        var layout = MangaPageArrangement().normalized(for: blocks)
+        layout.combine([1, 3])
+        XCTAssertEqual(layout.balloons, [[0], [1, 3], [2], [4]])
+        layout.moveBalloon(at: 1, by: -1)
+        XCTAssertEqual(layout.balloons, [[1, 3], [0], [2], [4]])
+        layout.separate(balloonAt: 0)
+        XCTAssertEqual(layout.balloons, [[1], [3], [0], [2], [4]])
+
+        layout.correctedSources[3] = "修正した台詞"
+        let resolved = layout.applyingCorrections(to: blocks)
+        XCTAssertEqual(resolved[3].source, "修正した台詞")
+        XCTAssertEqual(resolved[2].source, "dialog 2")
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("libraryon-manga-layout-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MangaPageArrangementStore(directory: directory)
+        try await store.save(layout, for: "book:page:quick")
+        let reopened = MangaPageArrangementStore(directory: directory)
+        let saved = await reopened.load(for: "book:page:quick")
+        XCTAssertEqual(saved, layout)
+        let otherPage = await reopened.load(for: "book:page:detailed")
+        XCTAssertNil(otherPage)
+    }
+
+    func testArrangementNormalizesStaleAndDuplicateIdentifiers() {
+        let blocks = (0..<3).map { MangaTextBlock(id: $0, source: "\($0)", bounds: nil) }
+        let stale = MangaPageArrangement(balloons: [[1, 1, 99], [0]],
+                                         correctedSources: [1: "  こんにちは  ", 99: "old", 2: "  "])
+        let normalized = stale.normalized(for: blocks)
+        XCTAssertEqual(normalized.balloons, [[1], [0], [2]])
+        XCTAssertEqual(normalized.correctedSources, [1: "  こんにちは  "])
+    }
+
     func testAdjacentVerticalDialogueColumnsBecomeOneTranslationUnit() {
         let candidates = [
             MangaOCRCandidate(source: "このネイル", bounds: CGRect(x: 0.93, y: 0.51, width: 0.02, height: 0.07), confidence: 0.41),

@@ -20,16 +20,21 @@ final class CloudLibraryTests: XCTestCase {
         XCTAssertNotEqual(before.size, after.size)
     }
 
-    func testCoordinatedReadPreservesSourceAndReportsMissingFile() throws {
+    func testCoordinatedReadPreservesSourceAndReportsMissingFile() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-read-\(UUID()).pdf")
         defer { try? FileManager.default.removeItem(at: url) }
         let contents = Data("local test book".utf8)
         try contents.write(to: url)
         XCTAssertFalse(CloudFileAccess.needsDownload(url))
-        try CloudFileAccess.prepareForReading(url)
+        try await CloudFileAccess.prepareForReading(url)
         XCTAssertEqual(try Data(contentsOf: url), contents)
         try FileManager.default.removeItem(at: url)
-        XCTAssertThrowsError(try CloudFileAccess.prepareForReading(url))
+        do {
+            try await CloudFileAccess.prepareForReading(url)
+            XCTFail("Missing cloud file should fail")
+        } catch {
+            XCTAssertFalse(error is CancellationError)
+        }
     }
 }
 

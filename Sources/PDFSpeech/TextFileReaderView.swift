@@ -108,8 +108,12 @@ struct TextFileReaderView: View {
         .toolbar {
             if isVisible {
                 ToolbarItem(placement: .primaryAction) {
-                    Button("Ekspor Audio…", systemImage: "square.and.arrow.up") {
-                        exportAudio()
+                    Menu {
+                        Button("Ekspor satu berkas…") { exportAudio() }
+                        Button("Ekspor per bab…") { exportChapters() }
+                            .disabled((document?.chapters.count ?? 0) < 2)
+                    } label: {
+                        Label("Ekspor Audio…", systemImage: "square.and.arrow.up")
                     }
                     .disabled(document == nil || isExporting || isChoosingExportDestination)
                 }
@@ -195,6 +199,89 @@ struct TextFileReaderView: View {
         } else {
             panel.begin(completionHandler: complete)
         }
+    }
+
+    private func exportChapters() {
+        guard let document, document.chapters.count > 1 else { return }
+        guard let voice = player.exportVoice() else {
+            exportStatus = player.error ?? "Suara untuk ekspor audio tidak tersedia."
+            return
+        }
+        guard !isChoosingExportDestination && !isExporting else { return }
+        let panel = NSOpenPanel()
+        panel.title = InterfaceLocalization.string("Pilih folder untuk audiobook", locale: locale)
+        panel.prompt = InterfaceLocalization.string("Pilih Folder", locale: locale)
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        isChoosingExportDestination = true
+        exportPanel = panel
+        let complete: (NSApplication.ModalResponse) -> Void = { response in
+            Task { @MainActor in
+                isChoosingExportDestination = false
+                exportPanel = nil
+                guard response == .OK, let folder = panel.url else { return }
+                startChapterExport(document, voice: voice, in: folder)
+            }
+        }
+        if let window = NSApp.keyWindow {
+            panel.beginSheetModal(for: window, completionHandler: complete)
+        } else {
+            panel.begin(completionHandler: complete)
+        }
+    }
+
+    @MainActor private func startChapterExport(_ document: TextFileDocument,
+                                                voice: AVSpeechSynthesisVoice,
+                                                in folder: URL) {
+        isExporting = true
+        exportStatus = "Menyiapkan audiobook berbab…"
+        let scoped = folder.startAccessingSecurityScopedResource()
+        exportTask = Task {
+            let name = safeAudioName(book.title)
+            let directory = folder.appendingPathComponent(
+                "\(name)-Audiobook-\(UUID().uuidString.prefix(8))", isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(at: directory,
+                                                        withIntermediateDirectories: false)
+                for (index, chapter) in document.chapters.enumerated() {
+                    try Task.checkCancellation()
+                    let filename = String(format: "%02d - %@.caf", index + 1,
+                                          safeAudioName(chapter.title))
+                    let destination = directory.appendingPathComponent(filename)
+                    let chapterIndex = index
+                    try await SpeechAudioExporter.export(
+                        Array(document.segments[chapter.segmentRange]),
+                        voice: voice, rate: player.rate,
+                        pronunciations: player.pronunciations,
+                        to: destination) { finished, total in
+                            exportStatus = String(format: InterfaceLocalization.string(
+                                "Bab %d/%d · kalimat %d/%d…", locale: locale),
+                                chapterIndex + 1, document.chapters.count, finished, total)
+                        }
+                }
+                exportStatus = String(format: InterfaceLocalization.string(
+                    "Audiobook disimpan di %@.", locale: locale),
+                    directory.lastPathComponent)
+            } catch is CancellationError {
+                try? FileManager.default.removeItem(at: directory)
+                exportStatus = "Ekspor audiobook dibatalkan."
+            } catch {
+                try? FileManager.default.removeItem(at: directory)
+                exportStatus = String(format: InterfaceLocalization.string(
+                    "Ekspor audio gagal: %@", locale: locale), error.localizedDescription)
+            }
+            if scoped { folder.stopAccessingSecurityScopedResource() }
+            isExporting = false
+            exportTask = nil
+        }
+    }
+
+    private func safeAudioName(_ title: String) -> String {
+        let name = title.replacingOccurrences(of: "[/\\:]", with: "-",
+                                              options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(name.prefix(70)).isEmpty ? "Bab" : String(name.prefix(70))
     }
 
     @MainActor private func startAudioExport(_ document: TextFileDocument,
