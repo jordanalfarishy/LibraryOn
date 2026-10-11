@@ -90,6 +90,7 @@ struct EPUBAppearance: Equatable {
                 book: book, chapter: incoming, paragraphs: paragraphs,
                 cfi: chapterCFI)
             let segments = readingDocument.spokenSegments
+            if !segments.isEmpty { error = nil }
             originalSegments = segments
             currentParagraphs = paragraphs
             player.setSegments(segments, startAt: start)
@@ -101,6 +102,15 @@ struct EPUBAppearance: Equatable {
                     let javascript = "pdfSpeechHighlight(\(paragraph),\(range.location),\(range.length),\(self.followReading))"
                     self.webView?.evaluateJavaScript(javascript)
                 }
+            }
+            player.onWordChange = { [weak self] segment, spokenWord in
+                guard let self, let paragraph = segment.paragraph,
+                      self.currentParagraphs.indices.contains(paragraph),
+                      let sourceRange = TextSegments.epubSourceRange(
+                        for: spokenWord, segment: segment,
+                        paragraphText: self.currentParagraphs[paragraph]) else { return }
+                let javascript = "pdfSpeechHighlight(\(paragraph),\(sourceRange.location),\(sourceRange.length),false)"
+                self.webView?.evaluateJavaScript(javascript)
             }
             player.onFinish = { [weak self] in
                 guard let self else { return }
@@ -145,7 +155,10 @@ struct EPUBAppearance: Equatable {
                                     depth: row["depth"] as? Int ?? 0)
             }
         case "error":
-            error = "Buku EPUB tidak dapat ditampilkan: \(payload["message"] as? String ?? "Kesalahan tidak diketahui")"
+            let message = payload["message"] as? String ?? "Kesalahan tidak diketahui"
+            if message == "Isi bab EPUB tidak dapat dibaca.",
+               player.isPlaying, !currentParagraphs.isEmpty { return }
+            error = "Buku EPUB tidak dapat ditampilkan: \(message)"
         default: break
         }
     }
@@ -398,6 +411,7 @@ struct EPUBReaderView: View {
     @Environment(LibraryModel.self) private var library
     @Environment(\.locale) private var locale
     let book: BookFile
+    let isVisible: Bool
     @State private var session = EPUBSession()
     @State private var extractedFolder: URL?
     @State private var offlineRule: WKContentRuleList?
@@ -448,13 +462,13 @@ struct EPUBReaderView: View {
                 Text(InterfaceLocalization.string(error, locale: locale))
                     .font(.caption).foregroundStyle(.orange).padding(.top, 6)
             }
-            PlayerControls(player: session.player,
+            PlayerControls(player: session.player, bookID: book.id,
                            onPlay: session.playFromSelection,
                            onPreferenceChange: saveSpeechPreference,
                            leading: returnToReadingControl)
         }
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
+            if isVisible { ToolbarItemGroup(placement: .primaryAction) {
                 Button { session.previousChapter() } label: {
                     Image(systemName: "chevron.left")
                 }
@@ -538,16 +552,24 @@ struct EPUBReaderView: View {
                 .help(String(format: InterfaceLocalization.string(
                     "Tipografi dan tema EPUB · %d%%", locale: locale), fontPercent))
                 .accessibilityLabel("Tipografi dan tema EPUB")
-            }
+            } }
         }
         .task { await prepare() }
-        .onAppear {
+        .onAppear { [library, session, book] in
             bookmarks = library.progressStore.bookmarks(for: book.id)
             let preference = SpeechPreferences.load(for: book.id)
             session.player.preferredLanguage = preference.language
             session.player.voiceIdentifier = preference.voiceIdentifier
+            session.player.nowPlayingTitle = book.title
+            session.player.onPlaybackStart = { [weak library, weak player = session.player] in
+                guard let player else { return }
+                library?.claimPlayback(for: book, player: player)
+            }
         }
-        .onDisappear { session.player.stop() }
+        .onDisappear {
+            session.player.cancelSleepTimer()
+            session.player.stop()
+        }
     }
 
     @ViewBuilder private var returnToReadingControl: some View {
@@ -592,6 +614,7 @@ struct EPUBReaderView: View {
         let preference = SpeechPreferences.load(for: book.id)
         session.player.preferredLanguage = preference.language
         session.player.voiceIdentifier = preference.voiceIdentifier
+        session.player.nowPlayingTitle = book.title
         Task { await prepare() }
     }
 

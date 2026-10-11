@@ -22,7 +22,8 @@ struct PDFSpeechApp: App {
                 .environment(\.locale, interfaceLocale)
                 .frame(minWidth: 880, minHeight: 580)
                 .background(AppWindowTitle(title: library.isReaderOpen
-                                           ? library.activeBook?.title ?? "LibraryOn" : "LibraryOn"))
+                                           ? library.activeBook?.title ?? "LibraryOn" : "LibraryOn",
+                                           showsTitle: library.isReaderOpen))
                 .onAppear { AppIconAppearance.shared.start() }
         }
         .commands {
@@ -40,6 +41,7 @@ struct PDFSpeechApp: App {
 
 private struct AppWindowTitle: NSViewRepresentable {
     let title: String
+    let showsTitle: Bool
 
     func makeNSView(context: Context) -> TitleView {
         TitleView()
@@ -47,15 +49,24 @@ private struct AppWindowTitle: NSViewRepresentable {
 
     func updateNSView(_ view: TitleView, context: Context) {
         view.title = title
+        view.showsTitle = showsTitle
         view.window?.title = title
+        view.window?.titleVisibility = showsTitle ? .visible : .hidden
+        DispatchQueue.main.async { [weak view] in
+            guard let view, let window = view.window else { return }
+            window.title = view.title
+            window.titleVisibility = view.showsTitle ? .visible : .hidden
+        }
     }
 
     final class TitleView: NSView {
         var title = "LibraryOn"
+        var showsTitle = false
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             window?.title = title
+            window?.titleVisibility = showsTitle ? .visible : .hidden
         }
     }
 }

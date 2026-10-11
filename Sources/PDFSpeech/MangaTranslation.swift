@@ -494,6 +494,7 @@ struct MangaTranslationPanel: View {
                 Spacer(minLength: 4)
                 Button { onClose() } label: { Image(systemName: "xmark") }
                     .help("Tutup terjemahan")
+                    .accessibilityLabel("Tutup terjemahan")
             }
             .padding(12)
             HStack {

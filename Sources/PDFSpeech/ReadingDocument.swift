@@ -11,12 +11,15 @@ struct TextSegment: Codable, Equatable, Sendable {
     let text: String
     let locator: ReadingLocator
     let sourceLength: Int
+    var isOCR = false
+    var ocrBounds: CGRect? = nil
 
     var spoken: SpokenSegment {
         switch locator {
         case .pdf(let page, let offset):
             SpokenSegment(text: text, page: page,
-                          range: NSRange(location: offset, length: sourceLength), paragraph: nil)
+                          range: isOCR ? nil : NSRange(location: offset, length: sourceLength),
+                          paragraph: nil, ocrBounds: ocrBounds)
         case .epub(let chapter, let paragraph, let offset, _):
             SpokenSegment(text: text, page: chapter,
                           range: NSRange(location: offset, length: sourceLength), paragraph: paragraph)
@@ -36,7 +39,7 @@ struct ReadingSection: Codable, Sendable {
 }
 
 struct ReadingDocument: Codable, Sendable {
-    static let extractorVersion = 1
+    static let extractorVersion = 2
     let format: BookFormat
     let sourceVersion: String
     let extractorVersion: Int
@@ -48,6 +51,7 @@ struct ReadingDocument: Codable, Sendable {
     var pdfContentLabel: String? {
         guard format == .pdf else { return nil }
         if segments.isEmpty { return "PDF tanpa teks" }
+        if segments.contains(where: \.isOCR), !hasUnreadablePages { return "PDF dengan OCR" }
         return hasUnreadablePages ? "PDF campuran" : "PDF teks"
     }
 
@@ -215,9 +219,10 @@ enum PDFReadingAdapter {
             section.segmentCount >= 0 &&
             section.segmentCount <= cached.segments.count - section.firstSegment
         } && cached.segments.allSatisfy { segment in
-            guard segment.sourceLength > 0 else { return false }
+            guard segment.sourceLength > 0 || segment.isOCR else { return false }
             if case .pdf(let page, let offset) = segment.locator {
-                return cached.sections.indices.contains(page) && offset >= 0
+                return cached.sections.indices.contains(page) && offset >= 0 &&
+                    (segment.isOCR ? segment.sourceLength == 0 : segment.sourceLength > 0)
             }
             return false
         }
@@ -231,7 +236,7 @@ enum PDFReadingAdapter {
         return cached
     }
 
-    private static func save(_ document: ReadingDocument, for book: BookFile,
+    static func save(_ document: ReadingDocument, for book: BookFile,
                              cacheDirectory: URL?) throws {
         let url = try cacheURL(for: book, cacheDirectory: cacheDirectory)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),

@@ -1,6 +1,6 @@
-# Protokol uji beta LibraryOn (T30)
+# Protokol uji beta eksternal LibraryOn (B13)
 
-Gunakan build beta lokal dan PDF/EPUB reflowable tanpa DRM yang boleh dipakai peserta. Jangan mengunggah buku atau merekam suara peserta. Catat macOS, model Mac, format buku, serta nama suara sistem yang dipakai. Lima peserta melakukan alur yang sama secara mandiri; fasilitator hanya mencatat hambatan dan tidak memberi petunjuk sebelum peserta menyatakan buntu.
+Gunakan build yang telah siap untuk peserta eksternal dan PDF/EPUB reflowable tanpa DRM yang boleh dipakai peserta. Jangan mengunggah buku atau merekam suara peserta. Catat macOS, model Mac, format buku, serta nama suara sistem yang dipakai. Lima peserta melakukan alur yang sama secara mandiri; fasilitator hanya mencatat hambatan dan tidak memberi petunjuk sebelum peserta menyatakan buntu. QA mandiri pemilik untuk M4 memakai [formulir terpisah](M4-local-qa.md).
 
 ## Alur tiap peserta
 

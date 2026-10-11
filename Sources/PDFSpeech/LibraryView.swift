@@ -29,14 +29,29 @@ struct LibraryView: View {
     @State private var isFolderDropTargeted = false
 
     var body: some View {
-        Group {
-            if library.isReaderOpen, let book = library.activeBook {
-                ReaderView(book: book)
-                    .id(book.id)
-            } else if library.activeRootID == nil {
-                emptyLibrary
-            } else {
-                libraryNavigation
+        ZStack {
+            if !library.isReaderOpen {
+                if library.activeRootID == nil { emptyLibrary }
+                else { libraryNavigation }
+            }
+
+            ForEach(library.readerBooks) { book in
+                let visible = library.isReaderOpen && library.activeBook?.id == book.id
+                ReaderView(book: book, isVisible: visible)
+                    .opacity(visible ? 1 : 0)
+                    .allowsHitTesting(visible)
+                    .disabled(!visible)
+                    .accessibilityHidden(!visible)
+                    .zIndex(visible ? 1 : 0)
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let book = library.playbackBook,
+               let player = library.playbackPlayer,
+               !library.isReaderOpen || library.activeBook?.id != book.id {
+                FloatingPlayer(book: book, player: player,
+                               onOpen: { library.showPlaybackBook() },
+                               onClose: { library.dismissPlayback() })
             }
         }
         .tint(AppTheme.accent)
@@ -80,13 +95,15 @@ struct LibraryView: View {
     }
 
     private var emptyLibrary: some View {
-        VStack(spacing: 15) {
+        VStack(spacing: 18) {
             Image(systemName: "books.vertical")
-                .font(.system(size: 57, weight: .ultraLight))
+                .font(.system(size: 36, weight: .medium))
                 .foregroundStyle(AppTheme.accent)
+                .frame(width: 76, height: 76)
+                .background(AppTheme.quietAccent, in: RoundedRectangle(cornerRadius: 20))
             Text("Buku Anda, dalam satu tempat")
-                .font(.largeTitle.bold())
-            Text("Pilih atau tarik folder berisi PDF dan EPUB. Subfolder akan tampil seperti susunan di Finder.")
+                .font(.system(size: 28, weight: .semibold, design: .rounded))
+            Text("Pilih atau tarik folder berisi PDF, EPUB, TXT, dan DOCX. Subfolder akan tampil seperti susunan di Finder.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 440)
@@ -121,6 +138,7 @@ struct LibraryView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(40)
+        .background(AppTheme.canvas)
     }
 
     private var libraryNavigation: some View {
@@ -140,6 +158,7 @@ struct LibraryView: View {
                         }
                         .buttonStyle(.borderless)
                         .help("Tambah folder pustaka")
+                        .accessibilityLabel("Tambah folder pustaka")
                     }
                     .padding(.horizontal, 17)
                     rootList
@@ -147,7 +166,7 @@ struct LibraryView: View {
                 .padding(.top, 10)
                 .padding(.bottom, 6)
                 .frame(height: min(42 + CGFloat(library.roots.count) * 43, 214))
-                Divider()
+                Divider().padding(.horizontal, 14)
                 if let active = library.activeRoot {
                     Text("\(InterfaceLocalization.string("DI DALAM", locale: locale)) \(active.name.uppercased())")
                         .font(.caption.weight(.semibold))
@@ -160,7 +179,7 @@ struct LibraryView: View {
                     folderOutline
                         .id(active.id)
                 }
-                Divider()
+                Divider().padding(.horizontal, 14)
                 Menu {
                     Button("Buka Folder Lain…") { library.chooseFolder() }
                     Button("Tambah dari Cloud…", systemImage: "cloud") { library.chooseCloudFolder() }
@@ -180,10 +199,11 @@ struct LibraryView: View {
                 .padding(.vertical, 9)
             }
             .frame(minWidth: 220)
-            .navigationTitle("Pustaka")
+            .background(AppTheme.canvas)
         } detail: {
             libraryContent
                 .id(library.activeRootID)
+                .navigationTitle("")
         }
     }
 
@@ -251,7 +271,7 @@ struct LibraryView: View {
                 }
                 .font(.callout)
                 .padding(9)
-                .background(AppTheme.accent.opacity(0.08))
+                .background(AppTheme.quietAccent)
             }
             if let notice = library.dataNotice {
                 HStack(spacing: 10) {
@@ -262,10 +282,11 @@ struct LibraryView: View {
                         Image(systemName: "xmark")
                     }
                     .help("Tutup pemberitahuan")
+                    .accessibilityLabel("Tutup pemberitahuan")
                 }
                 .font(.callout)
                 .padding(9)
-                .background(.quaternary.opacity(0.45))
+                .background(AppTheme.surface)
             }
             if let error = library.scanError {
                 HStack(spacing: 10) {
@@ -306,31 +327,14 @@ struct LibraryView: View {
                     .padding(.horizontal, 20)
                     .padding(.vertical, 6)
             }
-            HStack(spacing: 8) {
-                Button {
-                    let parent = (library.selectedFolder as NSString).deletingLastPathComponent
-                    library.selectedFolder = parent == "." ? "" : parent
-                } label: {
-                    Image(systemName: "chevron.left")
-                }
-                .disabled(library.selectedFolder.isEmpty)
-                .help("Ke folder induk")
-
-                breadcrumb
-                Spacer()
-                if library.isScanning { ProgressView().controlSize(.small) }
-                Button { library.scan() } label: { Image(systemName: "arrow.clockwise") }
-                    .help("Segarkan folder")
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            libraryHeader
             Divider()
             if library.visibleFolders.isEmpty && library.visibleBooks.isEmpty {
                 ContentUnavailableView(
                     library.search.isEmpty ? "Belum ada buku di folder ini" : "Tidak ada hasil",
                     systemImage: library.search.isEmpty ? "folder" : "magnifyingglass",
                     description: Text(library.isScanning ? "Sedang memindai folder…" :
-                                      "PDF dan EPUB dari folder yang dipilih akan muncul di sini.")
+                                      "PDF, EPUB, TXT, dan DOCX dari folder yang dipilih akan muncul di sini.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -338,6 +342,7 @@ struct LibraryView: View {
                     .id("\(library.cacheRevision):\(library.progressRevision)")
             }
         }
+        .background(AppTheme.canvas)
         .searchable(text: $library.search, prompt: "Cari judul atau nama file")
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
@@ -351,6 +356,7 @@ struct LibraryView: View {
                 .disabled(!library.visibleBooks.contains { $0.id == library.selectedBookID })
                 .keyboardShortcut(.return, modifiers: [])
                 .help("Buka buku terpilih (↩)")
+                .accessibilityLabel("Buka buku terpilih")
                 if !library.search.isEmpty {
                     Toggle("Seluruh pustaka", isOn: $library.searchAllFolders)
                         .toggleStyle(.checkbox)
@@ -371,68 +377,94 @@ struct LibraryView: View {
                     }
                 } label: { Image(systemName: "arrow.up.arrow.down") }
                 .help("Urutkan buku")
+                .accessibilityLabel("Urutkan buku")
                 Button {
                     library.listMode.toggle()
                 } label: {
                     Image(systemName: library.listMode ? "square.grid.2x2" : "list.bullet")
                 }
                 .help(library.listMode ? "Tampilan grid" : "Tampilan daftar")
+                .accessibilityLabel(library.listMode ? "Tampilan grid" : "Tampilan daftar")
             }
         }
     }
 
-    private var breadcrumb: some View {
-        let parts = library.selectedFolder.split(separator: "/").map(String.init)
-        return HStack(spacing: 4) {
-            Button(library.activeRoot?.name ?? "Buku") { library.selectedFolder = "" }
-                .buttonStyle(.plain)
-                .fontWeight(parts.isEmpty ? .semibold : .regular)
-            ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
-                Image(systemName: "chevron.right")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                Button(part) {
-                    library.selectedFolder = parts.prefix(index + 1).joined(separator: "/")
+    private var libraryHeader: some View {
+        HStack(spacing: 14) {
+            if !library.selectedFolder.isEmpty {
+                Button {
+                    let parent = (library.selectedFolder as NSString).deletingLastPathComponent
+                    library.selectedFolder = parent == "." ? "" : parent
+                } label: {
+                    Image(systemName: "chevron.left")
                 }
-                .buttonStyle(.plain)
-                .fontWeight(index == parts.count - 1 ? .semibold : .regular)
+                .buttonStyle(.bordered)
+                .help("Ke folder induk")
+                .accessibilityLabel("Ke folder induk")
             }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(library.selectedFolder.isEmpty
+                     ? library.activeRoot?.name ?? "Pustaka"
+                     : (library.selectedFolder as NSString).lastPathComponent)
+                    .font(.system(size: 27, weight: .semibold, design: .rounded))
+                    .lineLimit(1)
+                Text(String(format: InterfaceLocalization.string("%d buku · %d folder", locale: locale),
+                            library.visibleBooks.count, library.visibleFolders.count))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 12)
+            if library.isScanning { ProgressView().controlSize(.small) }
+            Button { library.scan() } label: { Image(systemName: "arrow.clockwise") }
+                .buttonStyle(.bordered)
+                .help("Segarkan folder")
+                .accessibilityLabel("Segarkan folder")
         }
-        .lineLimit(1)
+        .padding(.horizontal, 26)
+        .padding(.vertical, 22)
+        .background(AppTheme.canvas)
     }
 
     private var booksArea: some View {
         @Bindable var library = library
         return ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 26) {
                 if library.selectedFolder.isEmpty && library.search.isEmpty,
                    let recent = library.books
                     .filter({ library.progressStore.value(for: $0.id) != nil })
                     .max(by: { (library.progressStore.value(for: $0.id)?.lastOpened ?? .distantPast) <
                                 (library.progressStore.value(for: $1.id)?.lastOpened ?? .distantPast) }) {
                     Button { library.open(recent) } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "play.circle.fill")
-                                .font(.system(size: 28))
-                                .foregroundStyle(AppTheme.accent)
-                            VStack(alignment: .leading) {
-                                Text("Lanjutkan membaca").font(.caption).foregroundStyle(.secondary)
-                                Text(recent.title).font(.headline).lineLimit(1)
+                        HStack(spacing: 16) {
+                            BookCoverImage(book: recent)
+                                .frame(width: 50, height: 68)
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Lanjutkan membaca")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(AppTheme.accent)
+                                Text(recent.title)
+                                    .font(.headline)
+                                    .lineLimit(1)
                                 BookProgressBar(book: recent)
-                                    .frame(maxWidth: 260)
+                                    .frame(maxWidth: 300)
                             }
                             Spacer()
-                            Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                            Image(systemName: "arrow.up.right")
+                                .font(.callout.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 32, height: 32)
+                                .background(AppTheme.canvas, in: RoundedRectangle(cornerRadius: 8))
                         }
-                        .padding(12)
-                        .background(AppTheme.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+                        .padding(16)
+                        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+                        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(AppTheme.border))
                     }
                     .buttonStyle(.plain)
                 }
 
                 if !library.visibleFolders.isEmpty && library.search.isEmpty {
-                    Text("Folder").font(.headline)
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 10)], spacing: 10) {
+                    Text("Folder").font(.title3.weight(.semibold))
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
                         ForEach(library.visibleFolders) { folder in
                             Button { library.selectedFolder = folder.path } label: {
                                 HStack(spacing: 10) {
@@ -440,10 +472,14 @@ struct LibraryView: View {
                                         .foregroundStyle(AppTheme.accent)
                                     Text(folder.name).lineLimit(1)
                                     Spacer(minLength: 0)
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
                                 }
-                                .padding(.horizontal, 11)
-                                .padding(.vertical, 10)
-                                .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 13)
+                                .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 10))
+                                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(AppTheme.border))
                             }
                             .buttonStyle(.plain)
                         }
@@ -452,12 +488,10 @@ struct LibraryView: View {
 
                 HStack {
                     Text(LocalizedStringKey(library.search.isEmpty ? "Buku" : "Hasil pencarian"))
-                        .font(.headline)
-                    Text("\(library.visibleBooks.count)")
-                        .foregroundStyle(.secondary)
+                        .font(.title3.weight(.semibold))
                 }
                 if library.listMode {
-                    LazyVStack(spacing: 0) {
+                    LazyVStack(spacing: 5) {
                         ForEach(library.visibleBooks) { book in
                             BookListRow(book: book)
                                 .id(book.id)
@@ -465,8 +499,8 @@ struct LibraryView: View {
                     }
                     .scrollTargetLayout()
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 128, maximum: 164), spacing: 16)],
-                              alignment: .leading, spacing: 18) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 130, maximum: 180), spacing: 14)],
+                              alignment: .leading, spacing: 16) {
                         ForEach(library.visibleBooks) { book in
                             BookGridCard(book: book)
                                 .id(book.id)
@@ -476,9 +510,84 @@ struct LibraryView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(18)
+            .padding(.horizontal, 26)
+            .padding(.top, 20)
+            .padding(.bottom, 24)
         }
+        .background(AppTheme.canvas)
         .scrollPosition(id: $library.scrollAnchor)
+    }
+}
+
+private struct FloatingPlayer: View {
+    @Environment(\.locale) private var locale
+    let book: BookFile
+    @Bindable var player: SpeechPlayer
+    let onOpen: () -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        HStack(spacing: 13) {
+            BookCoverImage(book: book)
+                .frame(width: 36, height: 48)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(book.title)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                Text(String(format: InterfaceLocalization.string("Kalimat %d / %d", locale: locale),
+                            player.currentIndex + 1, player.segments.count))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(minWidth: 100, maxWidth: .infinity, alignment: .leading)
+            Button { player.previous() } label: {
+                Image(systemName: "backward.end.fill")
+            }
+            .foregroundStyle(.primary)
+            .disabled(player.segments.isEmpty)
+            .help("Kalimat sebelumnya")
+            .accessibilityLabel("Kalimat sebelumnya")
+            Button {
+                if player.isPlaying { player.pause() }
+                else { player.play() }
+            } label: {
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(AppTheme.accent)
+            .disabled(player.segments.isEmpty)
+            .help(player.isPlaying ? "Jeda" : "Putar")
+            .accessibilityLabel(player.isPlaying ? "Jeda" : "Putar")
+            Button { player.next() } label: {
+                Image(systemName: "forward.end.fill")
+            }
+            .foregroundStyle(.primary)
+            .disabled(player.segments.isEmpty)
+            .help("Kalimat berikutnya")
+            .accessibilityLabel("Kalimat berikutnya")
+            Rectangle()
+                .fill(AppTheme.border)
+                .frame(width: 1, height: 24)
+            Button("Buka Buku") { onOpen() }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            Button { onClose() } label: { Image(systemName: "xmark") }
+                .foregroundStyle(.secondary)
+                .help("Tutup pemutar")
+                .accessibilityLabel("Tutup pemutar")
+        }
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 780)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(AppTheme.border))
+        .shadow(color: .black.opacity(0.16), radius: 18, y: 6)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 18)
+        .padding(.top, 6)
+        .padding(.bottom, 12)
     }
 }
 
@@ -493,11 +602,16 @@ private struct BookGridCard: View {
             library.selectedBookID = book.id
             isFocused = true
         } label: {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
                 BookCoverImage(book: book)
                     .aspectRatio(0.72, contentMode: .fit)
-                Text(book.title).font(.subheadline.weight(.medium)).lineLimit(2)
+                Text(book.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                Text(book.format.rawValue.uppercased())
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
                 if library.unavailableBookIDs.contains(book.id) {
                     Label(InterfaceLocalization.string(
                           library.activeRoot?.cloudBacked == true
@@ -508,16 +622,18 @@ private struct BookGridCard: View {
                         .foregroundStyle(.orange)
                         .lineLimit(1)
                 }
-                BookProgressBar(book: book, showsLabel: false)
+                if library.progressStore.value(for: book.id) != nil {
+                    BookProgressBar(book: book, showsLabel: false)
+                }
             }
         }
         .buttonStyle(.plain)
         .focused($isFocused)
-        .padding(5)
-        .background(library.selectedBookID == book.id ? AppTheme.accent.opacity(0.12) : .clear,
-                    in: RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9)
-            .strokeBorder(library.selectedBookID == book.id ? AppTheme.accent.opacity(0.65) : .clear))
+        .padding(10)
+        .background(library.selectedBookID == book.id ? AppTheme.quietAccent : AppTheme.surface,
+                    in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12)
+            .strokeBorder(library.selectedBookID == book.id ? AppTheme.accent.opacity(0.7) : AppTheme.border))
         .simultaneousGesture(TapGesture(count: 2).onEnded { library.open(book) })
         .onKeyPress(.return) {
             library.open(book)
@@ -540,9 +656,9 @@ private struct BookListRow: View {
         } label: {
             HStack(spacing: 11) {
                 BookCoverImage(book: book)
-                    .frame(width: 32, height: 44)
+                    .frame(width: 38, height: 52)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(book.title).font(.subheadline.weight(.medium)).lineLimit(1)
+                    Text(book.title).font(.subheadline.weight(.semibold)).lineLimit(1)
                     Text(book.relativePath).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
@@ -553,24 +669,21 @@ private struct BookListRow: View {
                             library.activeRoot?.cloudBacked == true
                                 ? "Buka untuk mencoba mengunduh lagi" : "Temukan file",
                             locale: InterfaceLocalization.currentLocale))
-                } else {
+                } else if library.progressStore.value(for: book.id) != nil {
                     BookProgressBar(book: book, showsLabel: false)
                         .frame(width: 112)
                 }
             }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .focused($isFocused)
-        .background(library.selectedBookID == book.id ? AppTheme.accent.opacity(0.14) :
-                    .clear, in: RoundedRectangle(cornerRadius: 7))
-        .overlay(alignment: .bottom) {
-            if library.selectedBookID != book.id {
-                Divider().padding(.leading, 52)
-            }
-        }
+        .background(library.selectedBookID == book.id ? AppTheme.quietAccent : AppTheme.surface,
+                    in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .strokeBorder(library.selectedBookID == book.id ? AppTheme.accent.opacity(0.7) : AppTheme.border))
         .simultaneousGesture(TapGesture(count: 2).onEnded { library.open(book) })
         .onKeyPress(.return) {
             library.open(book)
@@ -597,6 +710,7 @@ private struct BookProgressBar: View {
             switch book.format {
             case .pdf: progress.pdfPageCount = measuredCount
             case .epub: progress.epubChapterCount = measuredCount
+            case .txt, .docx: progress.pdfPageCount = measuredCount
             }
         }
         return VStack(alignment: .leading, spacing: 3) {
@@ -615,8 +729,8 @@ private struct BookProgressBar: View {
             measuredCount = nil
             guard let saved = library.progressStore.value(for: book.id),
                   saved.lastOpened != .distantPast else { return }
-            let needsCount = book.format == .pdf
-                ? saved.pdfPageCount == nil : saved.epubChapterCount == nil
+            let needsCount = book.format == .epub
+                ? saved.epubChapterCount == nil : saved.pdfPageCount == nil
             guard needsCount else { return }
             let count = await Task.detached(priority: .utility) {
                 BookLength.count(for: book)
@@ -625,6 +739,7 @@ private struct BookProgressBar: View {
             switch book.format {
             case .pdf: library.progressStore.savePDFPageCount(book.id, count: count)
             case .epub: library.progressStore.saveEPUB(book.id, chapterCount: count)
+            case .txt, .docx: library.progressStore.savePDFPageCount(book.id, count: count)
             }
             measuredCount = count
         }

@@ -5,6 +5,8 @@ import Observation
 enum BookFormat: String, Codable, Sendable {
     case pdf
     case epub
+    case txt
+    case docx
 }
 
 struct BookFile: Identifiable, Hashable, Sendable {
@@ -207,6 +209,8 @@ struct RootRecord: Codable, Identifiable {
     var cacheRevision = 0
     var progressRevision = 0
     var activeBook: BookFile?
+    private(set) var playbackBook: BookFile?
+    private(set) var playbackPlayer: SpeechPlayer?
     var selectedBookID: String? { didSet { persistCurrentRoot() } }
     var isReaderOpen = false
     var openingCloudBookID: String?
@@ -214,6 +218,8 @@ struct RootRecord: Codable, Identifiable {
     var scrollAnchor: String? { didSet { persistCurrentRoot() } }
 
     @ObservationIgnored private var accessStarted = false
+    @ObservationIgnored private var playbackRootID: UUID?
+    @ObservationIgnored private var retainedPlaybackRootURL: URL?
     @ObservationIgnored private var scanGeneration = 0
     @ObservationIgnored private var indexWriteGeneration = 0
     @ObservationIgnored private var scanTask: Task<Void, Never>?
@@ -227,13 +233,16 @@ struct RootRecord: Codable, Identifiable {
     @ObservationIgnored private let bookmarkCreator: (URL) throws -> Data
     @ObservationIgnored private let indexStore: LibraryIndexStore
     @ObservationIgnored let progressStore: ProgressStore
+    @ObservationIgnored let annotationsStore: ReadingAnnotationsStore
 
     init(preferences: UserDefaults = .standard, progressStore: ProgressStore? = nil,
+         annotationsStore: ReadingAnnotationsStore? = nil,
          rootResolver: ((RootRecord) throws -> (URL, Bool))? = nil,
          bookmarkCreator: ((URL) throws -> Data)? = nil,
          indexStore: LibraryIndexStore = LibraryIndexStore()) {
         self.preferences = preferences
         self.progressStore = progressStore ?? ProgressStore()
+        self.annotationsStore = annotationsStore ?? ReadingAnnotationsStore()
         self.indexStore = indexStore
         self.rootResolver = rootResolver ?? { record in
             var stale = false
@@ -305,7 +314,7 @@ struct RootRecord: Codable, Identifiable {
             ? "Pilih folder cloud di Finder" : "Pilih folder buku")
         panel.message = InterfaceLocalization.string(cloudBacked
             ? "Pilih folder Google Drive, OneDrive, atau iCloud Drive yang tersedia di Finder. File online akan diunduh saat dibuka."
-            : "LibraryOn akan menampilkan PDF dan EPUB di folder ini beserta subfoldernya.")
+            : "LibraryOn akan menampilkan PDF, EPUB, TXT, dan DOCX di folder ini beserta subfoldernya.")
         panel.prompt = InterfaceLocalization.string("Buka Folder")
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -403,7 +412,14 @@ struct RootRecord: Codable, Identifiable {
         cloudOpenErrorBookID = nil
         scanGeneration += 1
         let activationGeneration = scanGeneration
-        if accessStarted { rootURL?.stopAccessingSecurityScopedResource() }
+        if accessStarted {
+            if playbackBook != nil, playbackRootID == activeRootID {
+                retainedPlaybackRootURL?.stopAccessingSecurityScopedResource()
+                retainedPlaybackRootURL = rootURL
+            } else {
+                rootURL?.stopAccessingSecurityScopedResource()
+            }
+        }
         accessStarted = false
         rootURL = nil
         activeRootID = id
@@ -431,6 +447,9 @@ struct RootRecord: Codable, Identifiable {
             let (url, stale) = try rootResolver(record)
             rootURL = url
             accessStarted = url.startAccessingSecurityScopedResource()
+            if accessStarted, playbackRootID == id {
+                releaseRetainedPlaybackRoot()
+            }
             guard FileManager.default.isReadableFile(atPath: url.path) else {
                 if accessStarted { url.stopAccessingSecurityScopedResource() }
                 accessStarted = false
@@ -551,6 +570,12 @@ struct RootRecord: Codable, Identifiable {
                     self.scanError = snapshot.inaccessibleFolders.isEmpty
                         ? nil : "Beberapa subfolder tidak dapat dibaca."
                     self.isIndexVerified = snapshot.inaccessibleFolders.isEmpty
+                    if self.playbackRootID == self.activeRootID,
+                       let playbackBook = self.playbackBook,
+                       self.unavailableBookIDs.contains(playbackBook.id) ||
+                       self.changedBookIDs.contains(playbackBook.id) {
+                        self.dismissPlayback()
+                    }
                     if let activeBook = self.activeBook,
                        self.unavailableBookIDs.contains(activeBook.id) ||
                        self.changedBookIDs.contains(activeBook.id) {
@@ -724,6 +749,9 @@ struct RootRecord: Codable, Identifiable {
             scanError = progressStore.storageError ?? "Progres tidak dapat dihubungkan."
             return false
         }
+        if !annotationsStore.relink(from: oldBook.id, to: replacement.id) {
+            dataNotice = annotationsStore.storageError
+        }
         if oldBook.size != replacement.size || oldBook.modifiedAt != replacement.modifiedAt {
             progressStore.resetLocation(replacement.id)
             progressStore.invalidateBookmarks(for: replacement.id)
@@ -749,6 +777,47 @@ struct RootRecord: Codable, Identifiable {
     func closeReader() {
         isReaderOpen = false
         activeBook = nil
+    }
+
+    func showPlaybackBook() {
+        guard let playbackBook else { return }
+        if playbackRootID == activeRootID { selectedBookID = playbackBook.id }
+        activeBook = playbackBook
+        isReaderOpen = true
+    }
+
+    var readerBooks: [BookFile] {
+        var result: [BookFile] = []
+        if let playbackBook { result.append(playbackBook) }
+        if isReaderOpen, let activeBook, activeBook.id != playbackBook?.id {
+            result.append(activeBook)
+        }
+        return result
+    }
+
+    func claimPlayback(for book: BookFile, player: SpeechPlayer) {
+        if playbackPlayer !== player {
+            playbackPlayer?.cancelSleepTimer()
+            playbackPlayer?.stop()
+            releaseRetainedPlaybackRoot()
+            playbackRootID = activeRootID
+        }
+        playbackBook = book
+        playbackPlayer = player
+    }
+
+    func dismissPlayback() {
+        playbackPlayer?.cancelSleepTimer()
+        playbackPlayer?.stop()
+        playbackPlayer = nil
+        playbackBook = nil
+        playbackRootID = nil
+        releaseRetainedPlaybackRoot()
+    }
+
+    private func releaseRetainedPlaybackRoot() {
+        retainedPlaybackRootURL?.stopAccessingSecurityScopedResource()
+        retainedPlaybackRootURL = nil
     }
 
     func clearCache() {
@@ -782,6 +851,7 @@ struct RootRecord: Codable, Identifiable {
 
     func forgetActiveRoot() {
         guard let activeRootID else { return }
+        if playbackRootID == activeRootID { dismissPlayback() }
         cancelCloudOpen()
         cloudOpenErrorBookID = nil
         watcher?.stop()

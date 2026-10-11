@@ -81,6 +81,47 @@ final class ReadingDocumentTests: XCTestCase {
         XCTAssertEqual(result.unreadablePage(after: 0, before: 2), 1)
     }
 
+    func testReviewedOCRFillsOnlyMissingPageAndPersistsWithoutChangingPDF() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let text = try XCTUnwrap(PDFDocument(url: fixtureFolder.appendingPathComponent("pdf-01.pdf")))
+        let image = try XCTUnwrap(PDFDocument(url: fixtureFolder.appendingPathComponent("edge-image-only.pdf")))
+        let mixed = PDFDocument()
+        mixed.insert(try XCTUnwrap(text.page(at: 0)), at: 0)
+        mixed.insert(try XCTUnwrap(image.page(at: 0)), at: 1)
+        mixed.insert(try XCTUnwrap(text.page(at: 1)), at: 2)
+        let url = folder.appendingPathComponent("mixed.pdf")
+        XCTAssertTrue(mixed.write(to: url))
+        let source = try Data(contentsOf: url)
+        let book = try book(url)
+        let cache = folder.appendingPathComponent("cache")
+        let original = try PDFReadingAdapter.load(book, cacheDirectory: cache)
+        let bounds = CGRect(x: 0.1, y: 0.4, width: 0.7, height: 0.15)
+        let blocks = [PDFOCRBlock(text: "Halaman gambar. Kalimat kedua.",
+                                  bounds: bounds, confidence: 0.9)]
+        let updated = try PDFReadingAdapter.applyingOCR(blocks, to: 1, in: original,
+                                                         for: book, cacheDirectory: cache)
+        XCTAssertEqual(updated.sections.map(\.status), [.readable, .readable, .readable])
+        XCTAssertEqual(updated.sections[0].segmentCount, original.sections[0].segmentCount)
+        XCTAssertEqual(updated.sections[2].segmentCount, original.sections[2].segmentCount)
+        let ocrSegments = updated.segments.filter(\.isOCR)
+        XCTAssertEqual(ocrSegments.map(\.text), ["Halaman gambar.", "Kalimat kedua."])
+        XCTAssertTrue(ocrSegments.allSatisfy { $0.spoken.range == nil && $0.ocrBounds == bounds })
+        XCTAssertEqual(try PDFReadingAdapter.load(book, cacheDirectory: cache).segments,
+                       updated.segments)
+        XCTAssertEqual(try Data(contentsOf: url), source)
+
+        let edited = try PDFReadingAdapter.applyingOCR(blocks, to: 1, in: original,
+            for: book, correctedText: "Teks diperbaiki.", cacheDirectory: cache)
+        XCTAssertEqual(edited.segments.filter(\.isOCR).map(\.text), ["Teks diperbaiki."])
+        XCTAssertNil(edited.segments.first(where: \.isOCR)?.ocrBounds)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(60)],
+                                              ofItemAtPath: url.path)
+        XCTAssertThrowsError(try PDFReadingAdapter.applyingOCR(blocks, to: 1, in: original,
+                                                              for: book, cacheDirectory: cache))
+    }
+
     func testEPUBChapterUsesSameSegmentAndLocatorContract() {
         let document = ReadingDocument.epub(chapter: 2,
             paragraphs: ["Awal. Lanjut.", "José membaca 日本語."],

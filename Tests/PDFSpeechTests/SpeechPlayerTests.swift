@@ -74,6 +74,24 @@ import XCTest
         XCTAssertFalse(player.waitingForSegments)
     }
 
+    func testSleepTimerCanBeReplacedAndCancelled() async throws {
+        let player = SpeechPlayer()
+        player.setSegments([segment("First sentence.")], isComplete: false)
+        player.advanceAfterUtterance()
+        player.scheduleSleepTimer(seconds: 0.04)
+        XCTAssertNotNil(player.sleepTimerEndsAt)
+        player.scheduleSleepTimer(seconds: 0.15)
+        try await Task.sleep(for: .milliseconds(75))
+        XCTAssertFalse(player.isPaused)
+        XCTAssertNotNil(player.sleepTimerEndsAt)
+        try await Task.sleep(for: .milliseconds(110))
+        XCTAssertTrue(player.isPaused)
+        XCTAssertNil(player.sleepTimerEndsAt)
+        player.scheduleSleepTimer(seconds: 10)
+        player.cancelSleepTimer()
+        XCTAssertNil(player.sleepTimerEndsAt)
+    }
+
     func testOutputDeviceChangePausesPendingBatchWithRecoveryMessage() {
         let player = SpeechPlayer()
         player.setSegments([segment("First sentence.")], isComplete: false)

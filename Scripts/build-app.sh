@@ -6,16 +6,17 @@ cd "$PROJECT_ROOT"
 
 export CLANG_MODULE_CACHE_PATH=/private/tmp/pdf-speech-clang-cache
 export SWIFTPM_MODULECACHE_OVERRIDE=/private/tmp/pdf-speech-swift-cache
+SCRATCH_PATH="${PDF_SPEECH_SCRATCH_PATH:-.build}"
 
 swift build --configuration release -debug-info-format none --disable-sandbox \
   --cache-path /private/tmp/pdf-speech-build-cache \
-  --manifest-cache local --scratch-path .build
+  --manifest-cache local --scratch-path "$SCRATCH_PATH"
 
 APP_PATH="${PDF_SPEECH_APP_PATH:-$PROJECT_ROOT/dist/LibraryOn.app}"
 CONTENTS="$APP_PATH/Contents"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
-cp .build/release/PDFSpeech "$CONTENTS/MacOS/PDFSpeech"
-cp -R .build/release/PDFSpeech_PDFSpeech.bundle "$CONTENTS/Resources/"
+cp "$SCRATCH_PATH/release/PDFSpeech" "$CONTENTS/MacOS/PDFSpeech"
+cp -R "$SCRATCH_PATH/release/PDFSpeech_PDFSpeech.bundle" "$CONTENTS/Resources/"
 cp App/Info.plist "$CONTENTS/Info.plist"
 for language in id en; do
   mkdir -p "$CONTENTS/Resources/$language.lproj"

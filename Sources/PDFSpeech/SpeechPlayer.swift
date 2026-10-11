@@ -10,11 +10,13 @@ struct SpokenSegment: Sendable {
     let page: Int
     let range: NSRange?
     let paragraph: Int?
+    var ocrBounds: CGRect? = nil
 }
 
 struct PDFTextPosition: Equatable {
     let page: Int
     let offset: Int
+    var length = 0
 }
 
 private enum PDFSpeechText {
@@ -53,6 +55,39 @@ private enum PDFSpeechText {
 }
 
 enum TextSegments {
+    static func pdfSourceRange(for spokenWord: NSRange, segment: SpokenSegment,
+                               pageText: String) -> NSRange? {
+        guard let sentenceRange = segment.range,
+              spokenWord.location >= 0,
+              NSMaxRange(spokenWord) <= (segment.text as NSString).length else { return nil }
+        let source = pageText as NSString
+        guard NSMaxRange(sentenceRange) <= source.length else { return nil }
+        let normalized = PDFSpeechText.normalized(source.substring(with: sentenceRange))
+        let sentence = normalized.text as NSString
+        let found = sentence.range(of: segment.text)
+        guard found.location != NSNotFound,
+              NSMaxRange(found) <= normalized.sourceBoundaries.count - 1 else { return nil }
+        let start = found.location + spokenWord.location
+        let end = start + spokenWord.length
+        guard end <= NSMaxRange(found) else { return nil }
+        return NSRange(location: sentenceRange.location + normalized.sourceBoundaries[start],
+                       length: normalized.sourceBoundaries[end] -
+                           normalized.sourceBoundaries[start])
+    }
+
+    static func epubSourceRange(for spokenWord: NSRange, segment: SpokenSegment,
+                                paragraphText: String) -> NSRange? {
+        guard let sentenceRange = segment.range,
+              spokenWord.location >= 0,
+              NSMaxRange(spokenWord) <= (segment.text as NSString).length else { return nil }
+        let source = paragraphText as NSString
+        guard NSMaxRange(sentenceRange) <= source.length else { return nil }
+        let found = source.range(of: segment.text, range: sentenceRange)
+        guard found.location != NSNotFound else { return nil }
+        return NSRange(location: found.location + spokenWord.location,
+                       length: spokenWord.length)
+    }
+
     static func selectionMatches(_ selected: String?, segment: SpokenSegment) -> Bool {
         guard let selected else { return false }
         let normalized = PDFSpeechText.normalized(selected).text
@@ -155,9 +190,15 @@ enum TextSegments {
     var rate: Float = AVSpeechUtteranceDefaultSpeechRate
     var voiceIdentifier: String = ""
     var preferredLanguage = "id-ID"
+    var nowPlayingTitle = "LibraryOn"
     var error: String?
     var onSegmentChange: ((Int, SpokenSegment) -> Void)?
+    var onWordChange: ((SpokenSegment, NSRange) -> Void)?
+    var currentWordRange: NSRange?
+    var pronunciations: [PronunciationEntry] = []
+    private(set) var sleepTimerEndsAt: Date?
     var onFinish: (() -> Void)?
+    @ObservationIgnored var onPlaybackStart: (() -> Void)?
     var canAdvanceAutomatically: ((SpokenSegment, SpokenSegment) -> Bool)?
     var canFinishAutomatically: ((SpokenSegment) -> Bool)?
     private(set) var waitingForSegments = false
@@ -167,6 +208,8 @@ enum TextSegments {
     @ObservationIgnored private let previewSynthesizer = AVSpeechSynthesizer()
     @ObservationIgnored private var session = UUID()
     @ObservationIgnored private var utteranceSessions: [ObjectIdentifier: UUID] = [:]
+    @ObservationIgnored private var utterancePronunciations: [ObjectIdentifier: PronunciationResult] = [:]
+    @ObservationIgnored private var sleepTimerTask: Task<Void, Never>?
     @ObservationIgnored private var outputDeviceListener: AudioObjectPropertyListenerBlock?
     @ObservationIgnored var voiceCatalog: () -> [AVSpeechSynthesisVoice] = {
         AVSpeechSynthesisVoice.speechVoices()
@@ -193,6 +236,7 @@ enum TextSegments {
     }
 
     deinit {
+        sleepTimerTask?.cancel()
         if let outputDeviceListener {
             var address = Self.outputDeviceAddress
             AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject),
@@ -256,6 +300,7 @@ enum TextSegments {
         previewSynthesizer.stopSpeaking(at: .immediate)
         if isPlaying { return }
         if waitingForSegments {
+            onPlaybackStart?()
             isPaused = false
             if currentIndex + 1 < segments.count {
                 waitingForSegments = false
@@ -271,9 +316,11 @@ enum TextSegments {
             return
         }
         if isPaused && synthesizer.isPaused {
+            onPlaybackStart?()
             isPaused = false
             isPlaying = true
             synthesizer.continueSpeaking()
+            NowPlayingBridge.shared.setPlaying(true, for: self)
             return
         }
         speakCurrent()
@@ -292,9 +339,12 @@ enum TextSegments {
             session = UUID()
             synthesizer.stopSpeaking(at: .immediate)
             utteranceSessions.removeAll()
+            utterancePronunciations.removeAll()
+            currentWordRange = nil
         }
         isPaused = true
         isPlaying = false
+        NowPlayingBridge.shared.setPlaying(false, for: self)
     }
 
     func stop() {
@@ -302,9 +352,37 @@ enum TextSegments {
         synthesizer.stopSpeaking(at: .immediate)
         previewSynthesizer.stopSpeaking(at: .immediate)
         utteranceSessions.removeAll()
+        utterancePronunciations.removeAll()
+        currentWordRange = nil
         isPlaying = false
         isPaused = false
         waitingForSegments = false
+        NowPlayingBridge.shared.clear(for: self)
+    }
+
+    func setSleepTimer(minutes: Int?) {
+        guard let minutes, minutes > 0 else {
+            sleepTimerTask?.cancel()
+            sleepTimerTask = nil
+            sleepTimerEndsAt = nil
+            return
+        }
+        scheduleSleepTimer(seconds: TimeInterval(minutes * 60))
+    }
+
+    func cancelSleepTimer() { setSleepTimer(minutes: nil) }
+
+    func scheduleSleepTimer(seconds: TimeInterval) {
+        sleepTimerTask?.cancel()
+        guard seconds > 0 else { cancelSleepTimer(); return }
+        sleepTimerEndsAt = Date().addingTimeInterval(seconds)
+        sleepTimerTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            self?.pause()
+            self?.sleepTimerEndsAt = nil
+            self?.sleepTimerTask = nil
+        }
     }
 
     func jump(to index: Int) {
@@ -350,6 +428,13 @@ enum TextSegments {
         if isPlaying || isPaused { jump(to: currentIndex) }
     }
 
+    func setPronunciations(_ entries: [PronunciationEntry]) {
+        let cleaned = PronunciationDictionary.clean(entries)
+        guard pronunciations != cleaned else { return }
+        pronunciations = cleaned
+        if isPlaying || isPaused { jump(to: currentIndex) }
+    }
+
     func previewVoice() {
         stop()
         guard let voice = selectedVoice() else { return }
@@ -370,14 +455,20 @@ enum TextSegments {
             isPlaying = false
             return
         }
-        let utterance = AVSpeechUtterance(string: segment.text)
+        let pronunciation = PronunciationDictionary.apply(segment.text,
+                                                          entries: pronunciations)
+        let utterance = AVSpeechUtterance(string: pronunciation.text)
         utterance.voice = voice
         utterance.rate = rate
         utteranceSessions[ObjectIdentifier(utterance)] = session
+        utterancePronunciations[ObjectIdentifier(utterance)] = pronunciation
+        currentWordRange = nil
+        onPlaybackStart?()
         onSegmentChange?(currentIndex, segment)
         isPlaying = true
         isPaused = false
         error = nil
+        NowPlayingBridge.shared.publish(self, title: nowPlayingTitle, isPlaying: true)
         synthesizer.speak(utterance)
     }
 
@@ -403,13 +494,30 @@ enum TextSegments {
         return available.first(where: { $0.identifier == preferred?.identifier }) ?? available[0]
     }
 
+    func exportVoice() -> AVSpeechSynthesisVoice? { selectedVoice() }
+
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
                                        didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor [weak self] in
             guard let self,
                   self.utteranceSessions.removeValue(forKey: ObjectIdentifier(utterance)) == self.session
             else { return }
+            self.utterancePronunciations.removeValue(forKey: ObjectIdentifier(utterance))
             self.advanceAfterUtterance()
+        }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+        willSpeakRangeOfSpeechString characterRange: NSRange,
+        utterance: AVSpeechUtterance) {
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.utteranceSessions[ObjectIdentifier(utterance)] == self.session,
+                  let mapping = self.utterancePronunciations[ObjectIdentifier(utterance)],
+                  let word = mapping.originalRange(for: characterRange),
+                  let segment = self.segments[safe: self.currentIndex] else { return }
+            self.currentWordRange = word
+            self.onWordChange?(segment, word)
         }
     }
 
@@ -421,6 +529,7 @@ enum TextSegments {
             if canAdvanceAutomatically?(current, next) == false {
                 isPlaying = false
                 isPaused = false
+                NowPlayingBridge.shared.setPlaying(false, for: self)
                 return
             }
             currentIndex += 1
@@ -431,12 +540,14 @@ enum TextSegments {
             isPlaying = false
             isPaused = false
             waitingForSegments = true
+            NowPlayingBridge.shared.setPlaying(false, for: self)
         }
     }
 
     private func finishAfterUtterance() {
         isPlaying = false
         isPaused = false
+        NowPlayingBridge.shared.clear(for: self)
         if let last = segments[safe: currentIndex],
            canFinishAutomatically?(last) == false { return }
         onFinish?()
@@ -446,6 +557,7 @@ enum TextSegments {
                                        didCancel utterance: AVSpeechUtterance) {
         Task { @MainActor [weak self] in
             self?.utteranceSessions.removeValue(forKey: ObjectIdentifier(utterance))
+            self?.utterancePronunciations.removeValue(forKey: ObjectIdentifier(utterance))
         }
     }
 }

@@ -80,6 +80,9 @@ struct BookProgressValue {
         case .epub:
             guard let count = epubChapterCount, count > 0 else { return 0 }
             return Double(min(max(epubChapter, 0), count - 1) + 1) / Double(count)
+        case .txt, .docx:
+            guard let count = pdfPageCount, count > 0 else { return 0 }
+            return Double(min(max(sentenceIndex, 0), count - 1) + 1) / Double(count)
         }
     }
 
@@ -99,6 +102,9 @@ struct BookProgressValue {
                         "Chapter \(max(epubChapter, 0) + 1) · total unknown"
                 }
                 return "Chapter \(min(max(epubChapter, 0), count - 1) + 1) of \(count) · estimated"
+            case .txt, .docx:
+                guard let count = pdfPageCount, count > 0 else { return "Not read yet" }
+                return "Sentence \(min(max(sentenceIndex, 0), count - 1) + 1) of \(count)"
             }
         }
         if finished { return "Selesai" }
@@ -115,6 +121,9 @@ struct BookProgressValue {
                     "Bab \(max(epubChapter, 0) + 1) · total belum diketahui"
             }
             return "Bab \(min(max(epubChapter, 0), count - 1) + 1) dari \(count) · perkiraan"
+        case .txt, .docx:
+            guard let count = pdfPageCount, count > 0 else { return "Belum dibaca" }
+            return "Kalimat \(min(max(sentenceIndex, 0), count - 1) + 1) dari \(count)"
         }
     }
 }

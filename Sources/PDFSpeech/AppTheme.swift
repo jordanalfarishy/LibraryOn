@@ -7,4 +7,8 @@ enum AppTheme {
                               blue: 0.75439, opacity: 1)
     static let accentNSColor = NSColor(displayP3Red: 0.35051, green: 0.20825,
                                        blue: 0.75439, alpha: 0.28)
+    static let canvas = Color(nsColor: .windowBackgroundColor)
+    static let surface = Color.primary.opacity(0.045)
+    static let border = Color.primary.opacity(0.10)
+    static let quietAccent = accent.opacity(0.10)
 }

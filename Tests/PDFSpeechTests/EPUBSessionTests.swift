@@ -33,4 +33,32 @@ import XCTest
         XCTAssertEqual(store.value(for: book.id)?.epubCFI, "epubcfi(/6/8)")
         XCTAssertEqual(store.value(for: book.id)?.epubChapter, 3)
     }
+
+    func testTransientEmptyRenderDoesNotCoverValidSpokenChapter() {
+        let book = BookFile(id: "epub-render-\(UUID().uuidString)",
+                            relativePath: "book.epub", folderPath: "",
+                            url: URL(fileURLWithPath: "/private/tmp/book.epub"),
+                            title: "Book", format: .epub, size: 100,
+                            modifiedAt: Date(timeIntervalSince1970: 1))
+        let store = ProgressStore(inMemory: true)
+        let session = EPUBSession()
+        session.handle(["kind": "chapter", "index": 1,
+                        "paragraphs": ["A valid spoken chapter."],
+                        "cfi": "epubcfi(/6/4)"], book: book, store: store)
+        session.player.isPlaying = true
+        session.handle(["kind": "error",
+                        "message": "Isi bab EPUB tidak dapat dibaca."],
+                       book: book, store: store)
+        XCTAssertNil(session.error)
+
+        session.player.isPlaying = false
+        session.handle(["kind": "error",
+                        "message": "Isi bab EPUB tidak dapat dibaca."],
+                       book: book, store: store)
+        XCTAssertNotNil(session.error)
+        session.handle(["kind": "chapter", "index": 2,
+                        "paragraphs": ["The next chapter is valid."],
+                        "cfi": "epubcfi(/6/6)"], book: book, store: store)
+        XCTAssertNil(session.error)
+    }
 }

@@ -5,17 +5,19 @@ import SwiftUI
 struct ReaderView: View {
     @Environment(LibraryModel.self) private var library
     let book: BookFile
+    let isVisible: Bool
 
     var body: some View {
         Group {
             switch book.format {
-            case .pdf: PDFReaderView(book: book)
-            case .epub: EPUBReaderView(book: book)
+            case .pdf: PDFReaderView(book: book, isVisible: isVisible)
+            case .epub: EPUBReaderView(book: book, isVisible: isVisible)
+            case .txt, .docx: TextFileReaderView(book: book, isVisible: isVisible)
             }
         }
-        .navigationTitle(book.title)
+        .navigationTitle(isVisible ? book.title : "")
         .toolbar {
-            ToolbarItem(placement: .navigation) {
+            if isVisible { ToolbarItem(placement: .navigation) {
                 Button {
                     library.closeReader()
                 } label: {
@@ -44,44 +46,76 @@ struct ReaderView: View {
                 }
                 .help("Pindah folder pustaka")
             }
+            }
         }
     }
 }
 
 struct PlayerControls<Leading: View>: View {
+    @Environment(LibraryModel.self) private var library
+    @Environment(\.locale) private var locale
     @Bindable var player: SpeechPlayer
+    let bookID: String
     var onPlay: (() -> Void)? = nil
     var onPreferenceChange: (() -> Void)? = nil
     let leading: Leading
+    @State private var showPronunciations = false
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            ZStack {
-                transport
-                HStack(spacing: 0) {
-                    leading.frame(width: 320, alignment: .leading)
-                    Spacer(minLength: 0)
-                    settings.frame(width: 320, alignment: .trailing)
-                }
-            }
-            .frame(minWidth: 790)
-            VStack(spacing: 10) {
+        Group {
+            if let active = library.playbackBook, active.id != bookID {
                 HStack(spacing: 12) {
                     leading
-                    Spacer(minLength: 8)
-                    settings
+                    Spacer(minLength: 12)
+                    Button {
+                        if let onPlay { onPlay() }
+                        else { player.play() }
+                    } label: {
+                        Label("Dengarkan buku ini", systemImage: "play.fill")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(player.segments.isEmpty)
+                    .help("Hentikan buku lain dan dengarkan buku ini")
                 }
-                transport
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    ZStack {
+                        transport
+                        HStack(spacing: 0) {
+                            leading.frame(width: 320, alignment: .leading)
+                            Spacer(minLength: 0)
+                            settings.frame(width: 320, alignment: .trailing)
+                        }
+                    }
+                    .frame(minWidth: 790)
+                    VStack(spacing: 10) {
+                        HStack(spacing: 12) {
+                            leading
+                            Spacer(minLength: 8)
+                            settings
+                        }
+                        transport
+                    }
+                }
             }
         }
         .buttonStyle(.borderless)
         .tint(.primary)
         .foregroundStyle(.primary)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 9)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .padding(.horizontal, 20)
+        .padding(.vertical, 11)
+        .background(.regularMaterial)
         .overlay(alignment: .top) {
-            Rectangle().fill(Color.primary.opacity(0.2)).frame(height: 1)
+            Rectangle().fill(AppTheme.border).frame(height: 1)
+        }
+        .onAppear {
+            player.setPronunciations(PronunciationDictionary.load(for: bookID))
+        }
+        .sheet(isPresented: $showPronunciations) {
+            PronunciationDictionarySheet(entries: player.pronunciations) { entries in
+                PronunciationDictionary.save(entries, for: bookID)
+                player.setPronunciations(entries)
+            }
         }
     }
 
@@ -113,13 +147,30 @@ struct PlayerControls<Leading: View>: View {
                 .help("Kalimat berikutnya")
                 .accessibilityLabel("Kalimat berikutnya")
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(AppTheme.border))
     }
 
     private var settings: some View {
         HStack(spacing: 10) {
+            Menu {
+                if let deadline = player.sleepTimerEndsAt {
+                    Text(String(format: InterfaceLocalization.string(
+                        "Berakhir pukul %@", locale: locale),
+                        deadline.formatted(date: .omitted, time: .shortened)))
+                    Button("Matikan Timer") { player.cancelSleepTimer() }
+                    Divider()
+                }
+                Button("15 menit") { player.setSleepTimer(minutes: 15) }
+                Button("30 menit") { player.setSleepTimer(minutes: 30) }
+                Button("60 menit") { player.setSleepTimer(minutes: 60) }
+            } label: {
+                Image(systemName: player.sleepTimerEndsAt == nil ? "moon.zzz" : "moon.zzz.fill")
+            }
+            .help("Timer tidur")
+            .accessibilityLabel("Timer tidur")
             Image(systemName: "speedometer")
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
@@ -170,10 +221,58 @@ struct PlayerControls<Leading: View>: View {
                 Button("Dengarkan Contoh", systemImage: "ear.badge.waveform") {
                     player.previewVoice()
                 }
+                Divider()
+                Button("Kamus Pelafalan…", systemImage: "text.book.closed") {
+                    showPronunciations = true
+                }
             } label: {
                 Label("Suara", systemImage: "waveform")
             }
         }
+    }
+}
+
+private struct PronunciationDictionarySheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State var entries: [PronunciationEntry]
+    let onSave: ([PronunciationEntry]) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Kamus Pelafalan").font(.title3.weight(.semibold))
+            Text("Ganti cara kata diucapkan untuk buku ini. Teks buku dan posisi baca tetap sama.")
+                .font(.callout).foregroundStyle(.secondary)
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach($entries) { $entry in
+                        HStack {
+                            TextField("Teks asli", text: $entry.written)
+                            Image(systemName: "arrow.right").foregroundStyle(.secondary)
+                            TextField("Diucapkan sebagai", text: $entry.spoken)
+                            Button {
+                                entries.removeAll { $0.id == entry.id }
+                            } label: { Image(systemName: "minus.circle") }
+                            .help("Hapus pelafalan")
+                        }
+                    }
+                }
+            }
+            .frame(minHeight: 100, maxHeight: 280)
+            Button("Tambah Kata", systemImage: "plus") {
+                entries.append(PronunciationEntry(written: "", spoken: ""))
+            }
+            HStack {
+                Spacer()
+                Button("Batal") { dismiss() }
+                Button("Simpan") {
+                    onSave(entries)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(22)
+        .frame(width: 520)
     }
 }
 
@@ -217,6 +316,8 @@ final class PDFCanvasView: PDFView {
     private var applyingZoom = false
     private var translationAnnotations: [PDFAnnotation] = []
     private var translationKey = ""
+    private var readingAnnotations: [PDFAnnotation] = []
+    private var readingAnnotationKey = ""
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -327,6 +428,33 @@ final class PDFCanvasView: PDFView {
         }
     }
 
+    func showReadingAnnotations(_ entries: [ReadingAnnotation],
+                                sourceVersion: String) {
+        let valid = entries.filter { !$0.needsReview(currentVersion: sourceVersion) }
+        let key = valid.map { $0.id.uuidString }.joined(separator: "|")
+        guard readingAnnotationKey != key else { return }
+        for annotation in readingAnnotations {
+            annotation.page?.removeAnnotation(annotation)
+        }
+        readingAnnotations = []
+        readingAnnotationKey = key
+        for entry in valid {
+            guard let page = document?.page(at: entry.page),
+                  let selection = page.selection(for: NSRange(location: entry.offset,
+                                                               length: entry.length)),
+                  selection.string?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    == entry.quote else { continue }
+            for line in selection.selectionsByLine() {
+                guard let linePage = line.pages.first else { continue }
+                let annotation = PDFAnnotation(bounds: line.bounds(for: linePage),
+                    forType: .highlight, withProperties: nil)
+                annotation.color = NSColor.systemYellow.withAlphaComponent(0.33)
+                linePage.addAnnotation(annotation)
+                readingAnnotations.append(annotation)
+            }
+        }
+    }
+
     func clearProgrammaticSelection() {
         guard programmaticSelectionKey != nil else { return }
         programmaticSelectionKey = nil
@@ -337,9 +465,12 @@ final class PDFCanvasView: PDFView {
 private struct PDFCanvas: NSViewRepresentable {
     let document: PDFDocument
     let segment: SpokenSegment?
+    let wordRange: NSRange?
     let followReading: Bool
     let zoomMode: PDFZoomMode
     let translations: [MangaOverlayBlock]
+    let readingAnnotations: [ReadingAnnotation]
+    let sourceVersion: String
     @Binding var pageIndex: Int
     @Binding var selectedPosition: PDFTextPosition?
     let onManualNavigation: () -> Void
@@ -388,7 +519,8 @@ private struct PDFCanvas: NSViewRepresentable {
             DispatchQueue.main.async {
                 view.onManualNavigation?()
                 pageIndex = pageNumber
-                selectedPosition = PDFTextPosition(page: pageNumber, offset: range.location)
+                selectedPosition = PDFTextPosition(page: pageNumber, offset: range.location,
+                                                   length: range.length)
             }
         }
         return view
@@ -399,23 +531,32 @@ private struct PDFCanvas: NSViewRepresentable {
         context.coordinator.expectedPageIndex = pageIndex
         if view.document !== document {
             view.showTranslations([])
+            view.showReadingAnnotations([], sourceVersion: "")
             view.document = document
             context.coordinator.lastHighlightKey = nil
         }
         view.zoomMode = zoomMode
         view.showTranslations(translations)
+        view.showReadingAnnotations(readingAnnotations, sourceVersion: sourceVersion)
         if let page = document.page(at: pageIndex), view.currentPage !== page {
             view.go(to: page)
         }
         view.applyZoom()
-        guard let segment, let range = segment.range,
+        guard let segment, let sentenceRange = segment.range,
               let page = document.page(at: segment.page),
-              let selection = page.selection(for: range),
-              TextSegments.selectionMatches(selection.string, segment: segment) else {
+              let sentenceSelection = page.selection(for: sentenceRange),
+              TextSegments.selectionMatches(sentenceSelection.string, segment: segment) else {
             view.clearProgrammaticSelection()
             context.coordinator.lastHighlightKey = nil
             return
         }
+        let sourceWord = wordRange.flatMap { word in
+            page.string.flatMap {
+                TextSegments.pdfSourceRange(for: word, segment: segment, pageText: $0)
+            }
+        }
+        let range = sourceWord ?? sentenceRange
+        guard let selection = page.selection(for: range) else { return }
         let key = "\(segment.page):\(range.location):\(range.length)"
         let wasFollowing = context.coordinator.lastFollowReading
         context.coordinator.lastFollowReading = followReading
@@ -433,6 +574,7 @@ private struct PDFCanvas: NSViewRepresentable {
 
     static func dismantleNSView(_ view: PDFCanvasView, coordinator: Coordinator) {
         view.showTranslations([])
+        view.showReadingAnnotations([], sourceVersion: "")
         if let observer = coordinator.pageObserver {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -450,15 +592,25 @@ private struct PDFCanvas: NSViewRepresentable {
     }
 }
 
+private struct PDFOCRReview: Identifiable {
+    let id = UUID()
+    let pageIndex: Int
+    let blocks: [PDFOCRBlock]
+}
+
 struct PDFReaderView: View {
     @Environment(LibraryModel.self) private var library
     @Environment(\.locale) private var locale
     let book: BookFile
+    let isVisible: Bool
     @State private var player = SpeechPlayer()
     @State private var document: PDFDocument?
     @State private var readingDocument: ReadingDocument?
+    @State private var baseReadingDocument: ReadingDocument?
+    @State private var readingOptions: PDFReadingOptions
     @State private var preparingText = true
     @State private var pendingRestoreIndex: Int?
+    @State private var restorePageAfterLayout: Int?
     @State private var extractionSession = UUID()
     @State private var preparationError: String?
     @State private var previewSegment: SpokenSegment?
@@ -474,7 +626,21 @@ struct PDFReaderView: View {
     @State private var selectedPosition: PDFTextPosition?
     @State private var outlineEntries: [PDFOutlineEntry] = []
     @State private var bookmarks: [ReadingBookmark] = []
+    @State private var annotations: [ReadingAnnotation] = []
+    @State private var editingAnnotation: ReadingAnnotation?
+    @State private var showContentSearch = false
+    @State private var contentSearch = ""
     @State private var loadError: String?
+    @State private var ocrTask: Task<Void, Never>?
+    @State private var ocrReview: PDFOCRReview?
+    @State private var ocrError: String?
+    @State private var isRunningOCR = false
+
+    init(book: BookFile, isVisible: Bool = true) {
+        self.book = book
+        self.isVisible = isVisible
+        _readingOptions = State(initialValue: PDFReadingOptions.load(for: book.id))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -486,9 +652,12 @@ struct PDFReaderView: View {
                         PDFCanvas(document: document,
                                   segment: previewSegment ?? ((player.isPlaying || player.isPaused)
                                     ? player.segments[safe: player.currentIndex] : nil),
+                                  wordRange: previewSegment == nil ? player.currentWordRange : nil,
                                   followReading: followReading,
                                   zoomMode: zoomMode,
-                                  translations: mangaEnabled ? mangaOverlay : [],
+                                  translations: readerOverlays,
+                                  readingAnnotations: annotations,
+                                  sourceVersion: baseReadingDocument?.sourceVersion ?? "",
                                   pageIndex: $pageIndex,
                                   selectedPosition: $selectedPosition,
                                   onManualNavigation: { followReading = false })
@@ -532,7 +701,17 @@ struct PDFReaderView: View {
                 }
             }
             if readingDocument?.sections.contains(where: { $0.index == pageIndex && $0.status == .needsOCR }) == true {
-                Text("Halaman ini tidak memiliki teks. OCR diperlukan untuk mendengarkannya.")
+                HStack(spacing: 10) {
+                    Text("Halaman ini tidak memiliki teks. OCR diperlukan untuk mendengarkannya.")
+                        .font(.caption).foregroundStyle(.orange)
+                    Button("Kenali Teks Halaman") { startOCR() }
+                        .disabled(preparingText || isRunningOCR)
+                    if isRunningOCR { ProgressView().controlSize(.small) }
+                }
+                .padding(.top, 6)
+            }
+            if let ocrError {
+                Text(InterfaceLocalization.string(ocrError, locale: locale))
                     .font(.caption).foregroundStyle(.orange).padding(.top, 6)
             }
             if let pendingUnreadablePage {
@@ -562,12 +741,12 @@ struct PDFReaderView: View {
                 Text(InterfaceLocalization.string(error, locale: locale))
                     .font(.caption).foregroundStyle(.orange).padding(.top, 6)
             }
-            PlayerControls(player: player, onPlay: playFromSelection,
+            PlayerControls(player: player, bookID: book.id, onPlay: playFromSelection,
                            onPreferenceChange: saveSpeechPreference,
                            leading: pageControls)
         }
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
+            if isVisible { ToolbarItemGroup(placement: .primaryAction) {
                 Menu {
                     if outlineEntries.isEmpty {
                         Text("PDF ini tidak memiliki daftar isi")
@@ -608,6 +787,58 @@ struct PDFReaderView: View {
                 .disabled(document == nil)
                 .help("Penanda bacaan")
                 .accessibilityLabel("Penanda bacaan")
+                Menu {
+                    Button("Sorot Teks Terpilih", systemImage: "highlighter") {
+                        addHighlight()
+                    }
+                    .disabled((selectedPosition?.length ?? 0) <= 0)
+                    Divider()
+                    if annotations.isEmpty {
+                        Text("Belum ada sorotan")
+                    } else {
+                        ForEach(annotations) { entry in
+                            Menu(String(entry.quote.prefix(45))) {
+                                Button("Buka") {
+                                    guard let version = baseReadingDocument?.sourceVersion,
+                                          !entry.needsReview(currentVersion: version),
+                                          let page = document?.page(at: entry.page),
+                                          let selection = page.selection(for: NSRange(
+                                            location: entry.offset, length: entry.length)),
+                                          selection.string?.trimmingCharacters(
+                                            in: .whitespacesAndNewlines) == entry.quote else { return }
+                                    pageIndex = entry.page
+                                    previewSegment = SpokenSegment(text: entry.quote,
+                                        page: entry.page,
+                                        range: NSRange(location: entry.offset,
+                                                       length: entry.length), paragraph: nil)
+                                    showText = false
+                                }
+                                Button("Catatan…") { editingAnnotation = entry }
+                                Button("Hapus Sorotan", role: .destructive) {
+                                    if library.annotationsStore.remove(entry.id) {
+                                        annotations = library.annotationsStore.all(for: book.id)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } label: { Image(systemName: "highlighter") }
+                .disabled(document == nil)
+                .help("Sorotan dan catatan")
+                .accessibilityLabel("Sorotan dan catatan")
+                Button { showContentSearch = true } label: {
+                    Image(systemName: "text.magnifyingglass")
+                }
+                .disabled(readingDocument?.segments.isEmpty != false)
+                .help("Cari dalam buku")
+                .accessibilityLabel("Cari dalam buku")
+                Menu {
+                    Toggle("Baca dua kolom", isOn: $readingOptions.twoColumns)
+                    Toggle("Lewati header/footer berulang", isOn: $readingOptions.skipRepeatedMargins)
+                } label: { Image(systemName: "text.alignleft") }
+                .disabled(document == nil)
+                .help("Tata bacaan PDF")
+                .accessibilityLabel("Tata bacaan PDF")
                 if #available(macOS 15.0, *) {
                     Button {
                         showText = false
@@ -623,26 +854,75 @@ struct PDFReaderView: View {
                         .disabled(true)
                         .help("Terjemahan manga memerlukan macOS 15 atau lebih baru")
                 }
-            }
+            } }
         }
-        .onAppear {
+        .onAppear { [library, player, book] in
             load()
+            annotations = library.annotationsStore.all(for: book.id)
             let preference = SpeechPreferences.load(for: book.id)
             player.preferredLanguage = preference.language
             player.voiceIdentifier = preference.voiceIdentifier
+            player.nowPlayingTitle = book.title
+            player.onPlaybackStart = { [weak library, weak player] in
+                guard let player else { return }
+                library?.claimPlayback(for: book, player: player)
+            }
         }
         .task { await prepareText() }
         .onChange(of: pageIndex) { _, newPage in
             if document != nil { library.progressStore.savePDFView(book.id, page: newPage) }
             if let previewSegment, previewSegment.page != newPage { self.previewSegment = nil }
+            ocrTask?.cancel()
+            ocrTask = nil
+            ocrReview = nil
+            isRunningOCR = false
+            ocrError = nil
         }
         .onChange(of: showText) { _, newValue in
             if newValue { mangaEnabled = false }
         }
+        .onChange(of: readingOptions) { _, newOptions in
+            newOptions.save(for: book.id)
+            reloadTextLayout()
+        }
         .onDisappear {
             extractionSession = UUID()
+            ocrTask?.cancel()
+            ocrTask = nil
+            player.cancelSleepTimer()
             player.stop()
         }
+        .sheet(item: $ocrReview) { review in
+            PDFOCRReviewSheet(pageIndex: review.pageIndex, blocks: review.blocks) { edited in
+                applyOCR(review, correctedText: edited)
+            }
+        }
+        .sheet(item: $editingAnnotation) { entry in
+            PDFAnnotationNoteSheet(entry: entry) { note in
+                if library.annotationsStore.updateNote(entry.id, note: note) {
+                    annotations = library.annotationsStore.all(for: book.id)
+                }
+            }
+        }
+        .sheet(isPresented: $showContentSearch) {
+            PDFContentSearchSheet(query: $contentSearch,
+                segments: readingDocument?.segments ?? []) { segment in
+                previewSegment = segment.spoken
+                pageIndex = segment.spoken.page
+                showText = false
+                showContentSearch = false
+            }
+        }
+    }
+
+    private var readerOverlays: [MangaOverlayBlock] {
+        var overlays = mangaEnabled ? mangaOverlay : []
+        let segment = previewSegment ?? ((player.isPlaying || player.isPaused)
+            ? player.segments[safe: player.currentIndex] : nil)
+        if let segment, let bounds = segment.ocrBounds {
+            overlays.append(MangaOverlayBlock(pageIndex: segment.page, id: -1, bounds: bounds))
+        }
+        return overlays
     }
 
     private var pageControls: some View {
@@ -716,7 +996,10 @@ struct PDFReaderView: View {
                                 ForEach(section.firstSegment..<(section.firstSegment + section.segmentCount), id: \.self) { index in
                                     let segment = readingDocument.segments[index].spoken
                                     HStack(alignment: .top, spacing: 10) {
-                                        Text(segment.text)
+                                        highlightedText(segment.text,
+                                            wordRange: index == player.currentIndex &&
+                                                (player.isPlaying || player.isPaused)
+                                                ? player.currentWordRange : nil)
                                             .font(.system(size: 17)).lineSpacing(6)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .textSelection(.enabled)
@@ -790,10 +1073,29 @@ struct PDFReaderView: View {
         }
     }
 
+    private func reloadTextLayout() {
+        guard document != nil else { return }
+        extractionSession = UUID()
+        ocrTask?.cancel()
+        ocrTask = nil
+        ocrReview = nil
+        isRunningOCR = false
+        player.stop()
+        readingDocument = nil
+        baseReadingDocument = nil
+        preparingText = true
+        preparationError = nil
+        pendingUnreadablePage = nil
+        restorePageAfterLayout = pageIndex
+        Task { await prepareText() }
+    }
+
     @MainActor private func prepareText() async {
         let session = UUID()
         extractionSession = session
-        pendingRestoreIndex = library.progressStore.value(for: book.id)?.sentenceIndex ?? 0
+        pendingRestoreIndex = restorePageAfterLayout == nil
+            ? library.progressStore.value(for: book.id)?.sentenceIndex ?? 0 : nil
+        let options = readingOptions
         player.onSegmentChange = { [store = library.progressStore, id = book.id] index, segment in
             store.savePDFAudio(id, sentence: index)
             if followReading { pageIndex = segment.page }
@@ -817,21 +1119,31 @@ struct PDFReaderView: View {
         }
         do {
             let worker = Task.detached(priority: .userInitiated) {
-                try PDFReadingAdapter.load(book) { partial in
+                let raw = try PDFReadingAdapter.load(book) { partial in
+                    guard options.isDefault else { return }
                     Task { @MainActor in
                         guard extractionSession == session,
                               partial.sections.count > (readingDocument?.sections.count ?? 0) else { return }
                         applyExtractedDocument(partial, isComplete: false)
                     }
                 }
+                guard !options.isDefault,
+                      let pdf = PDFDocument(url: book.url) else { return (raw, raw) }
+                return (raw, PDFTextLayout.apply(raw, pdf: pdf, options: options))
             }
-            let result = try await withTaskCancellationHandler {
+            let (raw, result) = try await withTaskCancellationHandler {
                 try await worker.value
             } onCancel: {
                 worker.cancel()
             }
             guard !Task.isCancelled, extractionSession == session else { return }
+            baseReadingDocument = raw
             applyExtractedDocument(result, isComplete: true)
+            if let restorePageAfterLayout {
+                let restored = result.segments.firstIndex { $0.spoken.page >= restorePageAfterLayout } ?? 0
+                player.setSegments(result.spokenSegments, startAt: restored)
+                self.restorePageAfterLayout = nil
+            }
             preparingText = false
             if result.segments.isEmpty {
                 player.error = "PDF ini tidak memiliki teks yang dapat dibaca. Dokumen scan memerlukan OCR."
@@ -847,6 +1159,7 @@ struct PDFReaderView: View {
 
     private func applyExtractedDocument(_ updated: ReadingDocument, isComplete: Bool) {
         guard updated.sections.count >= (readingDocument?.sections.count ?? 0) else { return }
+        if readingOptions.isDefault { baseReadingDocument = updated }
         readingDocument = updated
         let available = updated.spokenSegments
         if let restore = pendingRestoreIndex {
@@ -856,6 +1169,83 @@ struct PDFReaderView: View {
         } else if player.segments.count <= available.count {
             player.appendSegments(Array(available.dropFirst(player.segments.count)),
                                   isComplete: isComplete)
+        }
+    }
+
+    private func startOCR() {
+        guard !preparingText,
+              readingDocument?.sections.contains(where: {
+                  $0.index == pageIndex && $0.status == .needsOCR
+              }) == true else { return }
+        ocrTask?.cancel()
+        let requestedPage = pageIndex
+        ocrError = nil
+        isRunningOCR = true
+        ocrTask = Task {
+            let preferredLanguage = player.preferredLanguage
+            let worker = Task.detached(priority: .userInitiated) {
+                try PDFPageOCR.recognize(at: book.url, pageIndex: requestedPage,
+                                         preferredLanguage: preferredLanguage)
+            }
+            do {
+                let blocks = try await withTaskCancellationHandler {
+                    try await worker.value
+                } onCancel: { worker.cancel() }
+                guard !Task.isCancelled, pageIndex == requestedPage else { return }
+                isRunningOCR = false
+                ocrTask = nil
+                guard !blocks.isEmpty else { throw PDFOCRError.noText }
+                ocrReview = PDFOCRReview(pageIndex: requestedPage, blocks: blocks)
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, pageIndex == requestedPage else { return }
+                isRunningOCR = false
+                ocrTask = nil
+                ocrError = error.localizedDescription
+            }
+        }
+    }
+
+    private func applyOCR(_ review: PDFOCRReview, correctedText: String?) {
+        guard let current = baseReadingDocument, pageIndex == review.pageIndex else {
+            ocrReview = nil
+            return
+        }
+        ocrReview = nil
+        isRunningOCR = true
+        ocrError = nil
+        ocrTask = Task {
+            let options = readingOptions
+            let worker = Task.detached(priority: .userInitiated) {
+                let updated = try PDFReadingAdapter.applyingOCR(review.blocks, to: review.pageIndex,
+                    in: current, for: book, correctedText: correctedText)
+                guard !options.isDefault,
+                      let pdf = PDFDocument(url: book.url) else { return (updated, updated) }
+                return (updated, PDFTextLayout.apply(updated, pdf: pdf, options: options))
+            }
+            do {
+                let (raw, updated) = try await withTaskCancellationHandler {
+                    try await worker.value
+                } onCancel: { worker.cancel() }
+                guard !Task.isCancelled, pageIndex == review.pageIndex else { return }
+                baseReadingDocument = raw
+                readingDocument = updated
+                pendingUnreadablePage = nil
+                acknowledgedLeadingGap = true
+                let startIndex = updated.sections[review.pageIndex].firstSegment
+                player.setSegments(updated.spokenSegments, startAt: startIndex)
+                player.error = nil
+                isRunningOCR = false
+                ocrTask = nil
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, pageIndex == review.pageIndex else { return }
+                isRunningOCR = false
+                ocrTask = nil
+                ocrError = error.localizedDescription
+            }
         }
     }
 
@@ -871,10 +1261,34 @@ struct PDFReaderView: View {
         bookmarks = library.progressStore.bookmarks(for: book.id)
     }
 
+    private func addHighlight() {
+        guard let selectedPosition, selectedPosition.length > 0,
+              let page = document?.page(at: selectedPosition.page),
+              let sourceVersion = baseReadingDocument?.sourceVersion,
+              let quote = page.selection(for: NSRange(location: selectedPosition.offset,
+                                                       length: selectedPosition.length))?.string,
+              let entry = library.annotationsStore.addPDF(bookID: book.id,
+                sourceVersion: sourceVersion, page: selectedPosition.page,
+                range: NSRange(location: selectedPosition.offset,
+                               length: selectedPosition.length), quote: quote) else { return }
+        annotations = library.annotationsStore.all(for: book.id)
+        editingAnnotation = entry
+    }
+
     private func saveSpeechPreference() {
         SpeechPreferences.save(SpeechPreference(language: player.preferredLanguage,
                                                 voiceIdentifier: player.voiceIdentifier),
                                for: book.id)
+    }
+
+    private func highlightedText(_ value: String, wordRange: NSRange?) -> Text {
+        guard let wordRange, wordRange.location != NSNotFound,
+              NSMaxRange(wordRange) <= (value as NSString).length,
+              wordRange.length > 0 else { return Text(value) }
+        let source = value as NSString
+        return Text(source.substring(to: wordRange.location)) +
+            Text(source.substring(with: wordRange)).bold().underline() +
+            Text(source.substring(from: NSMaxRange(wordRange)))
     }
 
     private func collectOutline(from document: PDFDocument) -> [PDFOutlineEntry] {
@@ -924,6 +1338,125 @@ struct PDFReaderView: View {
         player.setSegments(start.segments, startAt: start.index,
                            isComplete: !preparingText)
         player.play()
+    }
+}
+
+private struct PDFOCRReviewSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.locale) private var locale
+    let pageIndex: Int
+    let blocks: [PDFOCRBlock]
+    let onApply: (String?) -> Void
+    @State private var draft: String
+
+    init(pageIndex: Int, blocks: [PDFOCRBlock], onApply: @escaping (String?) -> Void) {
+        self.pageIndex = pageIndex
+        self.blocks = blocks
+        self.onApply = onApply
+        _draft = State(initialValue: blocks.map(\.text).joined(separator: "\n"))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(String(format: InterfaceLocalization.string(
+                "Periksa Hasil OCR · Halaman %d", locale: locale), pageIndex + 1))
+                .font(.title3.weight(.semibold))
+            Text("Perbaiki teks yang keliru sebelum digunakan untuk suara. File PDF asli tidak diubah.")
+                .font(.callout).foregroundStyle(.secondary)
+            TextEditor(text: $draft)
+                .font(.body)
+                .frame(minHeight: 280)
+                .border(.quaternary)
+            HStack {
+                Spacer()
+                Button("Batal") { dismiss() }
+                Button("Gunakan Teks OCR") {
+                    let original = blocks.map(\.text).joined(separator: "\n")
+                    onApply(draft == original ? nil : draft)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(22)
+        .frame(width: 620)
+    }
+}
+
+private struct PDFAnnotationNoteSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let entry: ReadingAnnotation
+    let onSave: (String) -> Void
+    @State private var note: String
+
+    init(entry: ReadingAnnotation, onSave: @escaping (String) -> Void) {
+        self.entry = entry
+        self.onSave = onSave
+        _note = State(initialValue: entry.note)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Catatan Sorotan").font(.title3.weight(.semibold))
+            Text(entry.quote).lineLimit(4).foregroundStyle(.secondary)
+            TextEditor(text: $note).frame(height: 170).border(.quaternary)
+            HStack {
+                Spacer()
+                Button("Batal") { dismiss() }
+                Button("Simpan") { onSave(note); dismiss() }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(22)
+        .frame(width: 520)
+    }
+}
+
+private struct PDFContentSearchSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var query: String
+    let segments: [TextSegment]
+    let onSelect: (TextSegment) -> Void
+
+    private var results: [(offset: Int, element: TextSegment)] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        return Array(segments.enumerated().filter {
+            $0.element.text.localizedCaseInsensitiveContains(trimmed)
+        }.prefix(100))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Cari dalam Buku").font(.title3.weight(.semibold))
+            TextField("Kata atau frasa", text: $query)
+                .textFieldStyle(.roundedBorder)
+            if results.isEmpty {
+                ContentUnavailableView(query.isEmpty ? "Masukkan kata atau frasa" : "Tidak ada hasil",
+                    systemImage: "text.magnifyingglass")
+            } else {
+                List(results, id: \.offset) { result in
+                    Button {
+                        onSelect(result.element)
+                        dismiss()
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Halaman \(result.element.spoken.page + 1)")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Text(result.element.text).lineLimit(3)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Tutup") { dismiss() }
+            }
+        }
+        .padding(22)
+        .frame(width: 580, height: 500)
     }
 }
 
