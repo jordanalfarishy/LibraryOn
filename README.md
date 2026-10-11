@@ -6,7 +6,7 @@ _Bahasa Indonesia: LibraryOn membantu menjelajahi folder PDF/EPUB/TXT/DOCX, memb
 
 ## Project status
 
-This repository contains a **prototype**, currently version **0.6.1 (19)**. The M0–M3 implementation gates have passed. M4 verification and the B01–B07 backlog gates remain open where noted. The local app build uses an ad-hoc signature. There is no notarized release or verified clean-Mac installer yet. The earlier [M4 local beta package](Docs/M4-local-beta.md) remains version 0.5.3.
+This repository contains a **prototype**, currently version **0.6.2 (20)**. The M0–M3 implementation gates have passed. M4 verification and the B01–B07 backlog gates remain open where noted. The local app build uses an ad-hoc signature. There is no notarized release or verified clean-Mac installer yet. The earlier [M4 local beta package](Docs/M4-local-beta.md) remains version 0.5.3.
 
 ## Requirements and build
 
@@ -20,18 +20,18 @@ bash Scripts/build-app.sh
 open dist/LibraryOn.app
 ```
 
-The build uses vendored dependencies and creates `dist/LibraryOn.app`. A local QA archive of version 0.6.1 is available at [LibraryOn-0.6.1-local.zip](dist/LibraryOn-0.6.1-local.zip). Reopen the app after rebuilding. The generated `dist/` and `.build/` directories are ignored by Git. Run the test suite with `swift test` on macOS. The optional 1,000-book/FSEvents benchmark is documented in [M4 validation](Docs/M4-validation.md).
+The build uses vendored dependencies and creates `dist/LibraryOn.app`. A local QA archive of version 0.6.2 is available at [LibraryOn-0.6.2-local.zip](dist/LibraryOn-0.6.2-local.zip). Reopen the app after rebuilding. The generated `dist/` and `.build/` directories are ignored by Git. Run the test suite with `swift test` on macOS. The optional 1,000-book/FSEvents benchmark is documented in [M4 validation](Docs/M4-validation.md).
 
 ## What works now
 
-- Browse multiple library roots and subfolders; search titles, sort, and switch between grid and list views. The saved index appears while the folder is checked again in the background.
+- Browse multiple library roots and subfolders; search titles, sort, and switch between grid and list views. The saved index appears while the folder is checked again in the background. The Library header keeps the same toolbar height after returning from a book, and empty states provide actions for adding a folder, refreshing, or clearing a search.
 - Add a Google Drive for desktop, OneDrive, or iCloud Drive folder from Finder with **Add from Cloud**. LibraryOn indexes supported files without downloading every cover; an online-only book is prepared when opened. Folder access, reading progress, and bookmarks remain local.
 - Read text-based PDFs in original or text view, and reflowable EPUB 2/3 books with chapters, contents, typography, and themes.
 - Read TXT and simple DOCX paragraphs with TTS. Export a TXT/DOCX reading to local CAF audio through the macOS Save dialog.
 - Run local OCR on an image-only PDF page, review or correct the recognized text, then read it with TTS. Results are cached without editing the PDF. This B01 flow has passed synthetic QA; accuracy on varied scans remains open.
 - For a text-based PDF, choose **PDF reading layout** to read two columns in visual order and skip repeated headers or footers. Options persist per book. This B02 flow has passed synthetic QA; varied real-world layouts remain open.
 - Listen using installed Indonesian or English system voices, with play/pause, sentence navigation, speed, voice preview, and per-book voice choices.
-- Keep listening after returning to the Library or opening another book. A compact player controls the original book; the other reader shows one action to switch audio to it, without a duplicate TTS transport.
+- Keep listening after returning to the Library or opening another book. A compact player floats above the other reader; its own toolbar shows one action to switch audio to that book. Reading progress appears over each book cover so grid cards stay aligned.
 - Add per-book pronunciation replacements from the Voice menu. Spoken words are highlighted in the PDF, EPUB, or PDF text view when the system voice supplies word timing.
 - Set a 15, 30, or 60 minute sleep timer; Now Playing metadata and media controls follow active TTS playback on macOS.
 - Highlight selected PDF text, add a note, and search the extracted PDF content. Highlights and notes persist outside the PDF file; EPUB annotations and book collections remain in development.

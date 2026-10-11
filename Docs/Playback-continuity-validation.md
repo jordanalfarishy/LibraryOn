@@ -1,6 +1,6 @@
 # Pemutaran TTS lintas Library dan buku
 
-Status per 11 Oktober 2026: **alur utama lulus pada build QA lokal**. Sesi buku yang sedang berbunyi dipertahankan ketika Reader ditutup. Pemutar ringkas tampil di Library dan ketika buku lain sedang dibuka, dengan judul sumber, posisi kalimat, Putar/Jeda, kalimat sebelum/sesudah, Buka Buku, dan Tutup. Saat buku kedua mulai diputar, sesi pertama dihentikan sehingga tidak ada dua TTS bersamaan. Menutup pemutar membatalkan timer dan melepaskan sesi. Bila folder akar diganti, akses security-scoped sumber audio dipertahankan sampai sesi dihentikan atau diganti.
+Status per 12 Oktober 2026: **alur utama lulus pada build QA lokal**. Sesi buku yang sedang berbunyi dipertahankan ketika Reader ditutup. Pemutar ringkas tampil di Library dan ketika buku lain sedang dibuka, dengan judul sumber, posisi kalimat, Putar/Jeda, kalimat sebelum/sesudah, Buka Buku, dan Tutup. Saat buku kedua mulai diputar, sesi pertama dihentikan sehingga tidak ada dua TTS bersamaan. Menutup pemutar membatalkan timer dan melepaskan sesi. Bila folder akar diganti, akses security-scoped sumber audio dipertahankan sampai sesi dihentikan atau diganti.
 
 Bukti:
 
@@ -8,5 +8,6 @@ Bukti:
 - QA UI build sandbox dengan TXT panjang: buku A masih berstatus Jeda/Pause dan posisi kalimat bertambah setelah Library dan buku B dibuka; Putar di B menghilangkan pemutar A.
 - QA lintas format dengan PDF dan EPUB sintetis: PDF tetap berjalan di Library dan saat EPUB dibuka; Putar di EPUB mengambil alih, lalu EPUB tetap berjalan ketika TXT dibuka. Jeda dan lanjut dari pemutar ringkas berhasil.
 - QA UI build 0.6.0 terbaru: EPUB tersembunyi meneruskan audio ke bab 2 saat TXT terbuka; tombol Buka Buku menampilkan bab 2 dan status Jeda tanpa galat. Regresi unit memastikan pesan render WebView yang kosong sesaat tidak menutupi bab yang sudah valid dan sedang dibacakan.
+- QA UI build 0.6.2: setelah TTS TXT A dimulai dan kembali ke Library, kartu A menampilkan progres sebagai overlay di dasar thumbnail dengan tinggi sama seperti tiga kartu lain. Saat PDF C dibuka, pemutar A tampil mengambang di pojok kanan bawah area Reader, di atas toolbar PDF. Kontrol **Dengarkan buku ini** tetap berada di toolbar PDF; pemutar A dapat dijeda dan dilanjutkan dari Reader C. Perbandingan screenshot startup dan setelah kembali dari PDF menunjukkan tinggi toolbar serta posisi header Library tetap sama. Empty state awal dan pencarian tanpa hasil juga diperiksa lewat UI.
 
 Sisa QA: sesi sangat panjang, pergantian akar dengan volume terlepas, perubahan file sumber saat Reader tersembunyi, dan pengujian media keys/Control Center saat pemutar ringkas aktif.

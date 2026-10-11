@@ -38,6 +38,10 @@
 
 /* Library */
 "Buka Folder Buku…" = "Open Book Folder…";
+"Belum ada folder pustaka" = "No library folder yet";
+"Mulai pustaka Anda" = "Start your library";
+"Pilih folder buku dari Mac atau layanan cloud yang tersambung ke Finder. PDF, EPUB, TXT, dan DOCX di dalamnya akan muncul di sini." = "Choose a book folder on your Mac or from a cloud service connected to Finder. PDFs, EPUBs, TXT, and DOCX files inside it will appear here.";
+"Buka folder sebelumnya" = "Open a previous folder";
 "Buku Anda, dalam satu tempat" = "Your books, all in one place";
 "Pilih atau tarik folder berisi PDF dan EPUB. Subfolder akan tampil seperti susunan di Finder." = "Choose or drop a folder containing PDFs and EPUBs. Subfolders appear as they do in Finder.";
 "Folder Terakhir" = "Recent Folders";
@@ -60,6 +64,10 @@
 "Segarkan folder" = "Refresh folder";
 "Belum ada buku di folder ini" = "No books in this folder";
 "Tidak ada hasil" = "No results";
+"Memindai pustaka…" = "Scanning library…";
+"Buku PDF, EPUB, TXT, dan DOCX dari folder ini akan muncul di sini." = "PDF, EPUB, TXT, and DOCX books from this folder will appear here.";
+"Coba kata kunci lain atau cari di semua folder pustaka." = "Try another search term or search all library folders.";
+"Hapus pencarian" = "Clear search";
 "Sedang memindai folder…" = "Scanning folder…";
 "PDF dan EPUB dari folder yang dipilih akan muncul di sini." = "PDFs and EPUBs from the selected folder will appear here.";
 "Cari judul atau nama file" = "Search title or filename";

@@ -52,10 +52,12 @@ private struct AppWindowTitle: NSViewRepresentable {
         view.showsTitle = showsTitle
         view.window?.title = title
         view.window?.titleVisibility = showsTitle ? .visible : .hidden
+        view.window?.toolbarStyle = .unified
         DispatchQueue.main.async { [weak view] in
             guard let view, let window = view.window else { return }
             window.title = view.title
             window.titleVisibility = view.showsTitle ? .visible : .hidden
+            window.toolbarStyle = .unified
         }
     }
 
@@ -67,6 +69,7 @@ private struct AppWindowTitle: NSViewRepresentable {
             super.viewDidMoveToWindow()
             window?.title = title
             window?.titleVisibility = showsTitle ? .visible : .hidden
+            window?.toolbarStyle = .unified
         }
     }
 }

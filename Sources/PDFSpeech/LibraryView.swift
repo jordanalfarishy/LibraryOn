@@ -48,10 +48,26 @@ struct LibraryView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let book = library.playbackBook,
                let player = library.playbackPlayer,
-               !library.isReaderOpen || library.activeBook?.id != book.id {
-                FloatingPlayer(book: book, player: player,
+               !library.isReaderOpen {
+                FloatingPlayer(book: book, player: player, compact: false,
                                onOpen: { library.showPlaybackBook() },
                                onClose: { library.dismissPlayback() })
+                    .padding(.horizontal, 18)
+                    .padding(.top, 6)
+                    .padding(.bottom, 12)
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if let book = library.playbackBook,
+               let player = library.playbackPlayer,
+               library.isReaderOpen,
+               library.activeBook?.id != book.id {
+                FloatingPlayer(book: book, player: player,
+                               compact: true,
+                               onOpen: { library.showPlaybackBook() },
+                               onClose: { library.dismissPlayback() })
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 84)
             }
         }
         .tint(AppTheme.accent)
@@ -95,49 +111,80 @@ struct LibraryView: View {
     }
 
     private var emptyLibrary: some View {
-        VStack(spacing: 18) {
-            Image(systemName: "books.vertical")
-                .font(.system(size: 36, weight: .medium))
-                .foregroundStyle(AppTheme.accent)
-                .frame(width: 76, height: 76)
-                .background(AppTheme.quietAccent, in: RoundedRectangle(cornerRadius: 20))
-            Text("Buku Anda, dalam satu tempat")
-                .font(.system(size: 28, weight: .semibold, design: .rounded))
-            Text("Pilih atau tarik folder berisi PDF, EPUB, TXT, dan DOCX. Subfolder akan tampil seperti susunan di Finder.")
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 440)
-            Button("Buka Folder Buku…") { library.chooseFolder() }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-            Button("Tambah dari Cloud…", systemImage: "cloud") { library.chooseCloudFolder() }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-            if !library.roots.isEmpty {
-                Menu("Folder Terakhir") {
-                    ForEach(library.roots) { root in
-                        Button(root.name) { library.activateRoot(root.id) }
+        VStack(spacing: 0) {
+            libraryHeader
+            Divider()
+            GeometryReader { viewport in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 22) {
+                        Image(systemName: "books.vertical")
+                            .font(.system(size: 26, weight: .medium))
+                            .foregroundStyle(AppTheme.accent)
+                            .frame(width: 58, height: 58)
+                            .background(AppTheme.quietAccent,
+                                        in: RoundedRectangle(cornerRadius: 15))
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Mulai pustaka Anda")
+                                .font(.system(size: 24, weight: .semibold, design: .rounded))
+                            Text("Pilih folder buku dari Mac atau layanan cloud yang tersambung ke Finder. PDF, EPUB, TXT, dan DOCX di dalamnya akan muncul di sini.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        HStack(spacing: 10) {
+                            Button("Buka Folder Buku…", systemImage: "folder") {
+                                library.chooseFolder()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            Button("Tambah dari Cloud…", systemImage: "cloud") {
+                                library.chooseCloudFolder()
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                        .controlSize(.large)
+                        Divider()
+                        HStack(spacing: 18) {
+                            if !library.roots.isEmpty {
+                                Menu("Buka folder sebelumnya") {
+                                    ForEach(library.roots) { root in
+                                        Button(root.name) { library.activateRoot(root.id) }
+                                    }
+                                }
+                                .fixedSize()
+                            }
+                            Menu("Kelola Data") {
+                                Button("Bersihkan Cache") { library.clearCache() }
+                                    .disabled(library.isClearingCache)
+                                Button("Reset Progres dan Penanda…", role: .destructive) {
+                                    showResetConfirmation = true
+                                }
+                            }
+                            .fixedSize()
+                            Spacer(minLength: 0)
+                        }
+                        .font(.caption)
+                        if let notice = library.dataNotice {
+                            Text(InterfaceLocalization.string(notice, locale: locale))
+                                .font(.callout).foregroundStyle(.secondary)
+                        }
+                        if let error = library.scanError {
+                            Text(InterfaceLocalization.string(error, locale: locale))
+                                .font(.callout).foregroundStyle(.orange)
+                        }
                     }
+                    .frame(maxWidth: 500, alignment: .leading)
+                    .padding(30)
+                    .background(AppTheme.surface,
+                                in: RoundedRectangle(cornerRadius: 16))
+                    .overlay(RoundedRectangle(cornerRadius: 16)
+                        .strokeBorder(AppTheme.border))
+                    .padding(28)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: viewport.size.height)
                 }
             }
-            Menu("Kelola Data") {
-                Button("Bersihkan Cache") { library.clearCache() }
-                    .disabled(library.isClearingCache)
-                Button("Reset Progres dan Penanda…", role: .destructive) {
-                    showResetConfirmation = true
-                }
-            }
-            if let notice = library.dataNotice {
-                Text(InterfaceLocalization.string(notice, locale: locale))
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-            if let error = library.scanError {
-                Text(InterfaceLocalization.string(error, locale: locale))
-                    .foregroundStyle(.orange).font(.callout)
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(40)
         .background(AppTheme.canvas)
     }
 
@@ -330,13 +377,7 @@ struct LibraryView: View {
             libraryHeader
             Divider()
             if library.visibleFolders.isEmpty && library.visibleBooks.isEmpty {
-                ContentUnavailableView(
-                    library.search.isEmpty ? "Belum ada buku di folder ini" : "Tidak ada hasil",
-                    systemImage: library.search.isEmpty ? "folder" : "magnifyingglass",
-                    description: Text(library.isScanning ? "Sedang memindai folder…" :
-                                      "PDF, EPUB, TXT, dan DOCX dari folder yang dipilih akan muncul di sini.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                emptyContent
             } else {
                 booksArea
                     .id("\(library.cacheRevision):\(library.progressRevision)")
@@ -404,25 +445,76 @@ struct LibraryView: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text(library.selectedFolder.isEmpty
-                     ? library.activeRoot?.name ?? "Pustaka"
+                     ? library.activeRoot?.name ?? InterfaceLocalization.string("Pustaka", locale: locale)
                      : (library.selectedFolder as NSString).lastPathComponent)
                     .font(.system(size: 27, weight: .semibold, design: .rounded))
                     .lineLimit(1)
-                Text(String(format: InterfaceLocalization.string("%d buku · %d folder", locale: locale),
-                            library.visibleBooks.count, library.visibleFolders.count))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                if library.activeRootID == nil {
+                    Text("Belum ada folder pustaka")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(String(format: InterfaceLocalization.string("%d buku · %d folder", locale: locale),
+                                library.visibleBooks.count, library.visibleFolders.count))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer(minLength: 12)
-            if library.isScanning { ProgressView().controlSize(.small) }
-            Button { library.scan() } label: { Image(systemName: "arrow.clockwise") }
-                .buttonStyle(.bordered)
-                .help("Segarkan folder")
-                .accessibilityLabel("Segarkan folder")
+            if library.activeRootID != nil {
+                if library.isScanning { ProgressView().controlSize(.small) }
+                Button { library.scan() } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(.bordered)
+                    .help("Segarkan folder")
+                    .accessibilityLabel("Segarkan folder")
+            }
         }
         .padding(.horizontal, 26)
         .padding(.vertical, 22)
+        .frame(minHeight: 94)
         .background(AppTheme.canvas)
+    }
+
+    private var emptyContent: some View {
+        VStack(spacing: 13) {
+            Image(systemName: library.isScanning ? "arrow.clockwise" :
+                  (library.search.isEmpty ? "books.vertical" : "magnifyingglass"))
+                .font(.system(size: 25, weight: .medium))
+                .foregroundStyle(AppTheme.accent)
+                .frame(width: 58, height: 58)
+                .background(AppTheme.quietAccent,
+                            in: RoundedRectangle(cornerRadius: 15))
+            Text(library.isScanning ? "Memindai pustaka…" :
+                 (library.search.isEmpty ? "Belum ada buku di folder ini" : "Tidak ada hasil"))
+                .font(.title3.weight(.semibold))
+            Text(library.search.isEmpty
+                 ? "Buku PDF, EPUB, TXT, dan DOCX dari folder ini akan muncul di sini."
+                 : "Coba kata kunci lain atau cari di semua folder pustaka.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            if library.isScanning {
+                ProgressView().controlSize(.small)
+                    .padding(.top, 4)
+            } else if !library.search.isEmpty {
+                Button("Hapus pencarian") { library.search = "" }
+                    .buttonStyle(.bordered)
+                    .padding(.top, 4)
+            } else {
+                Button("Segarkan folder", systemImage: "arrow.clockwise") {
+                    library.scan()
+                }
+                .buttonStyle(.bordered)
+                .padding(.top, 4)
+            }
+        }
+        .frame(maxWidth: 380)
+        .padding(30)
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(AppTheme.border))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
     }
 
     private var booksArea: some View {
@@ -523,13 +615,14 @@ private struct FloatingPlayer: View {
     @Environment(\.locale) private var locale
     let book: BookFile
     @Bindable var player: SpeechPlayer
+    let compact: Bool
     let onOpen: () -> Void
     let onClose: () -> Void
 
     var body: some View {
         HStack(spacing: 13) {
             BookCoverImage(book: book)
-                .frame(width: 36, height: 48)
+                .frame(width: compact ? 32 : 36, height: compact ? 43 : 48)
             VStack(alignment: .leading, spacing: 3) {
                 Text(book.title)
                     .font(.callout.weight(.semibold))
@@ -569,9 +662,17 @@ private struct FloatingPlayer: View {
             Rectangle()
                 .fill(AppTheme.border)
                 .frame(width: 1, height: 24)
-            Button("Buka Buku") { onOpen() }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+            if compact {
+                Button { onOpen() } label: {
+                    Image(systemName: "arrow.up.right.square")
+                }
+                .help("Buka Buku")
+                .accessibilityLabel("Buka Buku")
+            } else {
+                Button("Buka Buku") { onOpen() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
             Button { onClose() } label: { Image(systemName: "xmark") }
                 .foregroundStyle(.secondary)
                 .help("Tutup pemutar")
@@ -580,14 +681,10 @@ private struct FloatingPlayer: View {
         .buttonStyle(.borderless)
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .frame(maxWidth: 780)
+        .frame(maxWidth: compact ? 500 : 780)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(AppTheme.border))
-        .shadow(color: .black.opacity(0.16), radius: 18, y: 6)
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 18)
-        .padding(.top, 6)
-        .padding(.bottom, 12)
+        .shadow(color: .black.opacity(0.26), radius: 24, y: 10)
     }
 }
 
@@ -605,26 +702,37 @@ private struct BookGridCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 BookCoverImage(book: book)
                     .aspectRatio(0.72, contentMode: .fit)
-                Text(book.title)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Text(book.format.rawValue.uppercased())
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
-                if library.unavailableBookIDs.contains(book.id) {
-                    Label(InterfaceLocalization.string(
-                          library.activeRoot?.cloudBacked == true
-                              ? "File cloud tidak tersedia · buka untuk mencoba lagi"
-                              : "File tidak tersedia · klik untuk hubungkan", locale: locale),
-                          systemImage: "exclamationmark.triangle")
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
-                        .lineLimit(1)
+                    .overlay(alignment: .bottom) {
+                        if library.progressStore.value(for: book.id) != nil {
+                            BookProgressBar(book: book, showsLabel: false)
+                                .padding(6)
+                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
+                                .padding(.horizontal, 8)
+                                .padding(.bottom, 8)
+                        }
+                    }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(book.title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(2)
+                    HStack(spacing: 6) {
+                        Text(book.format.rawValue.uppercased())
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                        if library.unavailableBookIDs.contains(book.id) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundStyle(.orange)
+                                .help(InterfaceLocalization.string(
+                                    library.activeRoot?.cloudBacked == true
+                                        ? "File cloud tidak tersedia · buka untuk mencoba lagi"
+                                        : "File tidak tersedia · klik untuk hubungkan", locale: locale))
+                        }
+                    }
+                    .frame(height: 16)
                 }
-                if library.progressStore.value(for: book.id) != nil {
-                    BookProgressBar(book: book, showsLabel: false)
-                }
+                .frame(height: 56, alignment: .top)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .buttonStyle(.plain)
