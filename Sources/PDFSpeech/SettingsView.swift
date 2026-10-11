@@ -23,7 +23,10 @@ struct SettingsView: View {
     private var availableVoices: [AVSpeechSynthesisVoice] {
         AVSpeechSynthesisVoice.speechVoices()
             .filter { $0.language == defaultLanguage }
-            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            .sorted {
+                if $0.quality != $1.quality { return $0.quality.rawValue > $1.quality.rawValue }
+                return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            }
     }
 
     private var folderCountText: String {
@@ -50,7 +53,8 @@ struct SettingsView: View {
                 Picker("Suara", selection: selectedVoice) {
                     Text("Suara sistem").tag("")
                     ForEach(availableVoices, id: \.identifier) { voice in
-                        Text(voice.name).tag(voice.identifier)
+                        Text("\(voice.name) · \(SpeechPlayer.qualityLabel(for: voice))")
+                            .tag(voice.identifier)
                     }
                 }
                 if availableVoices.isEmpty {

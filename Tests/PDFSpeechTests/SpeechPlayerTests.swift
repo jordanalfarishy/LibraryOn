@@ -8,6 +8,45 @@ import XCTest
         SpokenSegment(text: text, page: 0, range: nil, paragraph: nil)
     }
 
+    func testBatchKeepsSentenceAndPronunciationRangesInUTF16() throws {
+        let sentences = [segment("Halo, Dr. Sari."), segment("Ia membaca 📖 lagi."),
+                         segment("Selesai.")]
+        let rule = PronunciationEntry(written: "Dr.", spoken: "Dokter")
+        let batch = try XCTUnwrap(SpeechUtteranceBatch.make(
+            from: sentences, startAt: 0, pronunciations: [rule]))
+
+        XCTAssertEqual(batch.text, "Halo, Dokter Sari. Ia membaca 📖 lagi. Selesai.")
+        XCTAssertEqual(batch.lastIndex, 2)
+        let spoken = batch.text as NSString
+        let replacement = try XCTUnwrap(batch.originalWord(
+            for: spoken.range(of: "Dokter")))
+        XCTAssertEqual(replacement.index, 0)
+        XCTAssertEqual((sentences[0].text as NSString).substring(with: replacement.range), "Dr.")
+        let emoji = try XCTUnwrap(batch.originalWord(for: spoken.range(of: "📖")))
+        XCTAssertEqual(emoji.index, 1)
+        XCTAssertEqual((sentences[1].text as NSString).substring(with: emoji.range), "📖")
+        let last = try XCTUnwrap(batch.originalWord(for: spoken.range(of: "Selesai")))
+        XCTAssertEqual(last.index, 2)
+        XCTAssertEqual(last.range.location, 0)
+    }
+
+    func testBatchStopsAtPageParagraphAndLengthBoundaries() throws {
+        let sentences = [
+            SpokenSegment(text: "Kalimat pertama.", page: 0, range: nil, paragraph: 0),
+            SpokenSegment(text: "Kalimat kedua.", page: 0, range: nil, paragraph: 0),
+            SpokenSegment(text: "Paragraf baru.", page: 0, range: nil, paragraph: 1),
+            SpokenSegment(text: "Halaman baru.", page: 1, range: nil, paragraph: 1)
+        ]
+        let first = try XCTUnwrap(SpeechUtteranceBatch.make(
+            from: sentences, startAt: 0, pronunciations: []))
+        XCTAssertEqual(first.lastIndex, 1)
+        XCTAssertEqual(first.text, "Kalimat pertama. Kalimat kedua.")
+        XCTAssertEqual(SpeechUtteranceBatch.make(from: sentences, startAt: 2,
+            pronunciations: [])?.lastIndex, 2)
+        XCTAssertEqual(SpeechUtteranceBatch.make(from: sentences, startAt: 0,
+            pronunciations: [], maxUTF16Length: 20)?.lastIndex, 0)
+    }
+
     func testPauseWhileWaitingPreventsAutomaticFinish() {
         let player = SpeechPlayer()
         var finished = false

@@ -182,6 +182,61 @@ enum TextSegments {
     }
 }
 
+/// Speak nearby sentences together so the system voice can carry its intonation across
+/// sentence boundaries. Keep a map back to each sentence for progress and highlighting.
+struct SpeechUtteranceBatch {
+    struct Part {
+        let segmentIndex: Int
+        let spokenRange: NSRange
+        let pronunciation: PronunciationResult
+    }
+
+    let text: String
+    let parts: [Part]
+    var lastIndex: Int { parts[parts.count - 1].segmentIndex }
+
+    static func make(from segments: [SpokenSegment], startAt index: Int,
+                     pronunciations: [PronunciationEntry],
+                     maxUTF16Length: Int = 900) -> SpeechUtteranceBatch? {
+        guard segments.indices.contains(index) else { return nil }
+        let first = segments[index]
+        var text = ""
+        var parts: [Part] = []
+        var length = 0
+        for candidate in index..<segments.count {
+            let segment = segments[candidate]
+            guard segment.page == first.page,
+                  segment.paragraph == first.paragraph else { break }
+            let pronunciation = PronunciationDictionary.apply(segment.text,
+                                                               entries: pronunciations)
+            let spokenLength = (pronunciation.text as NSString).length
+            let separatorLength = parts.isEmpty ? 0 : 1
+            if !parts.isEmpty && length + separatorLength + spokenLength > maxUTF16Length {
+                break
+            }
+            if separatorLength > 0 { text += " " }
+            parts.append(Part(segmentIndex: candidate,
+                              spokenRange: NSRange(location: length + separatorLength,
+                                                   length: spokenLength),
+                              pronunciation: pronunciation))
+            text += pronunciation.text
+            length += separatorLength + spokenLength
+        }
+        return SpeechUtteranceBatch(text: text, parts: parts)
+    }
+
+    func originalWord(for spokenRange: NSRange) -> (index: Int, range: NSRange)? {
+        guard let part = parts.first(where: {
+            NSIntersectionRange($0.spokenRange, spokenRange).length > 0
+        }) else { return nil }
+        let overlap = NSIntersectionRange(part.spokenRange, spokenRange)
+        let local = NSRange(location: overlap.location - part.spokenRange.location,
+                            length: overlap.length)
+        guard let original = part.pronunciation.originalRange(for: local) else { return nil }
+        return (part.segmentIndex, original)
+    }
+}
+
 @MainActor @Observable final class SpeechPlayer: NSObject, AVSpeechSynthesizerDelegate {
     var segments: [SpokenSegment] = []
     var currentIndex = 0
@@ -208,7 +263,7 @@ enum TextSegments {
     @ObservationIgnored private let previewSynthesizer = AVSpeechSynthesizer()
     @ObservationIgnored private var session = UUID()
     @ObservationIgnored private var utteranceSessions: [ObjectIdentifier: UUID] = [:]
-    @ObservationIgnored private var utterancePronunciations: [ObjectIdentifier: PronunciationResult] = [:]
+    @ObservationIgnored private var utteranceBatches: [ObjectIdentifier: SpeechUtteranceBatch] = [:]
     @ObservationIgnored private var sleepTimerTask: Task<Void, Never>?
     @ObservationIgnored private var outputDeviceListener: AudioObjectPropertyListenerBlock?
     @ObservationIgnored var voiceCatalog: () -> [AVSpeechSynthesisVoice] = {
@@ -349,7 +404,7 @@ enum TextSegments {
             session = UUID()
             synthesizer.stopSpeaking(at: .immediate)
             utteranceSessions.removeAll()
-            utterancePronunciations.removeAll()
+            utteranceBatches.removeAll()
             currentWordRange = nil
         }
         isPaused = true
@@ -362,7 +417,7 @@ enum TextSegments {
         synthesizer.stopSpeaking(at: .immediate)
         previewSynthesizer.stopSpeaking(at: .immediate)
         utteranceSessions.removeAll()
-        utterancePronunciations.removeAll()
+        utteranceBatches.removeAll()
         currentWordRange = nil
         isPlaying = false
         isPaused = false
@@ -465,13 +520,13 @@ enum TextSegments {
             isPlaying = false
             return
         }
-        let pronunciation = PronunciationDictionary.apply(segment.text,
-                                                          entries: pronunciations)
-        let utterance = AVSpeechUtterance(string: pronunciation.text)
+        guard let batch = SpeechUtteranceBatch.make(from: segments, startAt: currentIndex,
+                                                   pronunciations: pronunciations) else { return }
+        let utterance = AVSpeechUtterance(string: batch.text)
         utterance.voice = voice
         utterance.rate = rate
         utteranceSessions[ObjectIdentifier(utterance)] = session
-        utterancePronunciations[ObjectIdentifier(utterance)] = pronunciation
+        utteranceBatches[ObjectIdentifier(utterance)] = batch
         currentWordRange = nil
         onPlaybackStart?()
         onSegmentChange?(currentIndex, segment)
@@ -500,8 +555,11 @@ enum TextSegments {
             error = "Suara untuk bahasa ini belum tersedia. Pilih suara yang terpasang."
             return nil
         }
-        let preferred = AVSpeechSynthesisVoice(language: preferredLanguage)
-        return available.first(where: { $0.identifier == preferred?.identifier }) ?? available[0]
+        if let systemDefault = AVSpeechSynthesisVoice(language: preferredLanguage),
+           systemDefault.quality.rawValue >= available[0].quality.rawValue {
+            return systemDefault
+        }
+        return available[0]
     }
 
     func exportVoice() -> AVSpeechSynthesisVoice? { selectedVoice() }
@@ -512,7 +570,13 @@ enum TextSegments {
             guard let self,
                   self.utteranceSessions.removeValue(forKey: ObjectIdentifier(utterance)) == self.session
             else { return }
-            self.utterancePronunciations.removeValue(forKey: ObjectIdentifier(utterance))
+            guard let batch = self.utteranceBatches.removeValue(
+                forKey: ObjectIdentifier(utterance)) else { return }
+            if self.currentIndex != batch.lastIndex {
+                self.currentIndex = batch.lastIndex
+                self.currentWordRange = nil
+                self.onSegmentChange?(batch.lastIndex, self.segments[batch.lastIndex])
+            }
             self.advanceAfterUtterance()
         }
     }
@@ -523,11 +587,16 @@ enum TextSegments {
         Task { @MainActor [weak self] in
             guard let self,
                   self.utteranceSessions[ObjectIdentifier(utterance)] == self.session,
-                  let mapping = self.utterancePronunciations[ObjectIdentifier(utterance)],
-                  let word = mapping.originalRange(for: characterRange),
-                  let segment = self.segments[safe: self.currentIndex] else { return }
-            self.currentWordRange = word
-            self.onWordChange?(segment, word)
+                  let batch = self.utteranceBatches[ObjectIdentifier(utterance)],
+                  let mapped = batch.originalWord(for: characterRange),
+                  let segment = self.segments[safe: mapped.index] else { return }
+            if self.currentIndex != mapped.index {
+                self.currentIndex = mapped.index
+                self.currentWordRange = nil
+                self.onSegmentChange?(mapped.index, segment)
+            }
+            self.currentWordRange = mapped.range
+            self.onWordChange?(segment, mapped.range)
         }
     }
 
@@ -567,7 +636,7 @@ enum TextSegments {
                                        didCancel utterance: AVSpeechUtterance) {
         Task { @MainActor [weak self] in
             self?.utteranceSessions.removeValue(forKey: ObjectIdentifier(utterance))
-            self?.utterancePronunciations.removeValue(forKey: ObjectIdentifier(utterance))
+            self?.utteranceBatches.removeValue(forKey: ObjectIdentifier(utterance))
         }
     }
 }

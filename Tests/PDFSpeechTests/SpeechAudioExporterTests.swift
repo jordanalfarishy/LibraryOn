@@ -8,8 +8,8 @@ import XCTest
         guard ProcessInfo.processInfo.environment["LIBRARYON_AUDIO_EXPORT_LIVE"] == "1" else {
             throw XCTSkip("Enable LIBRARYON_AUDIO_EXPORT_LIVE for the optional system voice check.")
         }
-        guard let voice = AVSpeechSynthesisVoice(language: "en-US") else {
-            throw XCTSkip("English system voice is unavailable")
+        guard let voice = AVSpeechSynthesisVoice(language: "id-ID") else {
+            throw XCTSkip("Indonesian system voice is unavailable")
         }
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString).appendingPathExtension("caf")
@@ -17,8 +17,10 @@ import XCTest
         var completed = 0
         let worker = Task {
             try await SpeechAudioExporter.export([
-                SpokenSegment(text: "This is a short audio export.", page: 0,
-                              range: nil, paragraph: nil)
+                SpokenSegment(text: "Ini kalimat pertama.", page: 0,
+                              range: nil, paragraph: 0),
+                SpokenSegment(text: "Lalu, kalimat kedua dibaca dengan suara yang sama.",
+                              page: 0, range: nil, paragraph: 0)
             ], voice: voice, rate: AVSpeechUtteranceDefaultSpeechRate,
                pronunciations: [], to: url) { finished, _ in completed = finished }
         }
@@ -28,7 +30,7 @@ import XCTest
         }
         defer { timeout.cancel() }
         try await worker.value
-        XCTAssertEqual(completed, 1)
+        XCTAssertEqual(completed, 2)
         XCTAssertGreaterThan(try AVAudioFile(forReading: url).length, 0)
     }
 }

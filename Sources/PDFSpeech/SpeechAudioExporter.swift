@@ -89,11 +89,12 @@ private final class AudioExportSink: @unchecked Sendable {
         let synthesizer = AVSpeechSynthesizer()
         let sink = AudioExportSink(url: temporary)
         do {
-            for (index, segment) in segments.enumerated() {
+            var index = 0
+            while index < segments.count {
                 try Task.checkCancellation()
-                let spoken = PronunciationDictionary.apply(segment.text,
-                    entries: pronunciations).text
-                let utterance = AVSpeechUtterance(string: spoken)
+                guard let batch = SpeechUtteranceBatch.make(from: segments, startAt: index,
+                    pronunciations: pronunciations) else { break }
+                let utterance = AVSpeechUtterance(string: batch.text)
                 utterance.voice = voice
                 utterance.rate = rate
                 try await withTaskCancellationHandler {
@@ -105,7 +106,8 @@ private final class AudioExportSink: @unchecked Sendable {
                     sink.cancel()
                     Task { @MainActor in synthesizer.stopSpeaking(at: .immediate) }
                 }
-                onProgress(index + 1, segments.count)
+                index = batch.lastIndex + 1
+                onProgress(index, segments.count)
             }
             try sink.close()
             try Task.checkCancellation()
