@@ -102,13 +102,34 @@ struct SettingsView: View {
                 Text("Cache dapat dibuat ulang. Reset progres juga menghapus seluruh penanda bacaan, tetapi tidak mengubah file buku.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Sinkronisasi progres") {
+                LabeledContent("Folder cloud", value: library.progressSync.folderName ?? "Belum dipilih")
+                Text(InterfaceLocalization.string(library.progressSync.status, locale: locale))
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Button("Pilih folder…") { library.progressSync.chooseFolder() }
+                        .disabled(library.progressSync.isSyncing)
+                    Button("Sinkronkan sekarang") {
+                        Task { await library.progressSync.syncNow() }
+                    }
+                    .disabled(library.progressSync.folderName == nil || library.progressSync.isSyncing)
+                    if library.progressSync.folderName != nil {
+                        Button("Putuskan", role: .destructive) {
+                            library.progressSync.disconnect()
+                        }
+                        .disabled(library.progressSync.isSyncing)
+                    }
+                }
+                Text("Pilih folder Google Drive atau OneDrive yang tersedia di Finder. LibraryOn menyimpan satu file LibraryOn-progress.json; buku tetap di folder asal. Gunakan nama folder pustaka dan struktur buku yang sama di perangkat lain.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Bantuan") {
                 Text("LibraryOn membaca PDF berbasis teks dan EPUB reflowable tanpa DRM. Suara sistem yang sudah terpasang dapat dipakai tanpa jaringan.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
-        .frame(width: 560, height: 540)
+        .frame(width: 560, height: 600)
         .task(id: library.cacheRevision) {
             cacheBytes = try? await Task.detached(priority: .utility) {
                 try CacheMaintenance.size()
@@ -120,7 +141,11 @@ struct SettingsView: View {
                 library.resetReadingData()
             }
         } message: {
-            Text("Posisi baca dan semua penanda akan dihapus. File buku dan folder pustaka tetap ada.")
+            if library.progressSync.folderName == nil {
+                Text("Posisi baca dan semua penanda akan dihapus. File buku dan folder pustaka tetap ada.")
+            } else {
+                Text("Posisi baca akan dihapus di perangkat lain saat sinkronisasi berjalan. Penanda lokal juga dihapus. File buku tetap ada.")
+            }
         }
     }
 }

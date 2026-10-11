@@ -131,11 +131,20 @@ struct BookProgressValue {
     }
 }
 
+struct ProgressChange: OptionSet {
+    let rawValue: Int
+    static let visual = ProgressChange(rawValue: 1 << 0)
+    static let audio = ProgressChange(rawValue: 1 << 1)
+    static let completion = ProgressChange(rawValue: 1 << 2)
+}
+
 @MainActor final class ProgressStore {
     private var context: ModelContext?
     private var cached: [String: BookProgressValue] = [:]
     private var bookmarks: [String: [ReadingBookmark]] = [:]
     private(set) var storageError: String?
+    var onProgressChange: ((String, BookProgressValue, ProgressChange) -> Void)?
+    var onResetAll: (() -> Void)?
 
     init(inMemory: Bool = false, storeURL: URL? = nil) {
         do {
@@ -181,7 +190,7 @@ struct BookProgressValue {
     }
 
     func savePDFView(_ bookID: String, page: Int) {
-        update(bookID) {
+        update(bookID, change: .visual) {
             $0.pdfPage = page
             $0.lastOpened = .now
         }
@@ -193,7 +202,7 @@ struct BookProgressValue {
     }
 
     func savePDFAudio(_ bookID: String, sentence: Int) {
-        update(bookID) {
+        update(bookID, change: [.audio, .completion]) {
             $0.sentenceIndex = sentence
             $0.finished = false
             $0.lastOpened = .now
@@ -260,7 +269,10 @@ struct BookProgressValue {
 
     func saveEPUB(_ bookID: String, cfi: String? = nil, chapter: Int? = nil,
                   chapterCount: Int? = nil, sentence: Int? = nil) {
-        update(bookID) {
+        var change: ProgressChange = []
+        if cfi != nil || chapter != nil { change.insert(.visual) }
+        if sentence != nil { change.formUnion([.audio, .completion]) }
+        update(bookID, change: change) {
             if let cfi { $0.epubCFI = cfi }
             if let chapter { $0.epubChapter = chapter }
             if let chapterCount, chapterCount > 0 { $0.epubChapterCount = chapterCount }
@@ -275,7 +287,7 @@ struct BookProgressValue {
     }
 
     func saveEPUBAudio(_ bookID: String, chapter: Int, cfi: String, sentence: Int) {
-        update(bookID) {
+        update(bookID, change: [.audio, .completion]) {
             $0.epubAudioChapter = chapter
             $0.epubAudioCFI = cfi
             $0.sentenceIndex = sentence
@@ -285,11 +297,11 @@ struct BookProgressValue {
     }
 
     func markFinished(_ bookID: String) {
-        update(bookID) { $0.finished = true }
+        update(bookID, change: .completion) { $0.finished = true }
     }
 
     func resetLocation(_ bookID: String) {
-        update(bookID) {
+        update(bookID, change: [.visual, .audio, .completion]) {
             $0.pdfPage = 0
             $0.sentenceIndex = 0
             $0.epubCFI = ""
@@ -340,6 +352,7 @@ struct BookProgressValue {
             try context.save()
             cached.removeAll()
             bookmarks.removeAll()
+            onResetAll?()
             return true
         } catch {
             context.rollback()
@@ -348,7 +361,41 @@ struct BookProgressValue {
         }
     }
 
-    private func update(_ bookID: String, mutate: (inout BookProgressValue) -> Void) {
+    func applySynced(_ bookID: String, visual: SyncedVisualPosition?,
+                     audio: SyncedAudioPosition?, finished: Bool?, changedAt: Date) {
+        update(bookID) {
+            if let visual {
+                $0.pdfPage = max(0, visual.pdfPage)
+                $0.epubChapter = max(0, visual.epubChapter)
+                $0.epubCFI = visual.epubCFI
+            }
+            if let audio {
+                $0.sentenceIndex = max(0, audio.sentenceIndex)
+                $0.epubAudioChapter = audio.epubAudioChapter
+                $0.epubAudioCFI = audio.epubAudioCFI
+            }
+            if let finished { $0.finished = finished }
+            $0.lastOpened = max($0.lastOpened, changedAt)
+        }
+    }
+
+    func clearSyncedProgress(_ bookID: String) {
+        guard let context else { return }
+        do {
+            let id = bookID
+            let request = FetchDescriptor<BookProgressEntity>(
+                predicate: #Predicate { $0.bookID == id })
+            for entity in try context.fetch(request) { context.delete(entity) }
+            try context.save()
+            cached.removeValue(forKey: bookID)
+        } catch {
+            context.rollback()
+            storageError = "Gagal menghapus progres tersinkron: \(error.localizedDescription)"
+        }
+    }
+
+    private func update(_ bookID: String, change: ProgressChange = [],
+                        mutate: (inout BookProgressValue) -> Void) {
         var next = cached[bookID] ?? BookProgressValue()
         mutate(&next)
         cached[bookID] = next
@@ -369,6 +416,7 @@ struct BookProgressValue {
             entity.lastOpened = next.lastOpened
             entity.finished = next.finished
             try context.save()
+            if !change.isEmpty { onProgressChange?(bookID, next, change) }
         } catch {
             storageError = "Gagal menyimpan progres: \(error.localizedDescription)"
         }

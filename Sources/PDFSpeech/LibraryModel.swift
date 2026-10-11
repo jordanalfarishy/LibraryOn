@@ -198,7 +198,15 @@ struct RootRecord: Codable, Identifiable {
     var activeRootID: UUID?
     var rootURL: URL?
     var folders: [FolderEntry] = [FolderEntry(path: "")]
-    var books: [BookFile] = []
+    var books: [BookFile] = [] {
+        didSet {
+            if let activeRoot {
+                let unique = roots.filter { $0.name == activeRoot.name }.count == 1
+                progressSync.register(books, libraryName: activeRoot.name,
+                                      uniqueName: unique)
+            }
+        }
+    }
     var selectedFolder = "" {
         didSet {
             if selectedFolder != oldValue { scrollAnchor = nil }
@@ -247,6 +255,7 @@ struct RootRecord: Codable, Identifiable {
     @ObservationIgnored private let bookmarkCreator: (URL) throws -> Data
     @ObservationIgnored private let indexStore: LibraryIndexStore
     @ObservationIgnored let progressStore: ProgressStore
+    @ObservationIgnored let progressSync: ProgressSyncManager
     @ObservationIgnored let videoProgressStore: VideoProgressStore
     @ObservationIgnored let annotationsStore: ReadingAnnotationsStore
 
@@ -257,6 +266,7 @@ struct RootRecord: Codable, Identifiable {
          indexStore: LibraryIndexStore = LibraryIndexStore()) {
         self.preferences = preferences
         self.progressStore = progressStore ?? ProgressStore()
+        self.progressSync = ProgressSyncManager(store: self.progressStore, defaults: preferences)
         self.videoProgressStore = VideoProgressStore(defaults: preferences)
         self.annotationsStore = annotationsStore ?? ReadingAnnotationsStore()
         self.indexStore = indexStore
@@ -271,6 +281,7 @@ struct RootRecord: Codable, Identifiable {
             try url.bookmarkData(options: [.withSecurityScope],
                                  includingResourceValuesForKeys: nil, relativeTo: nil)
         }
+        self.progressSync.onImported = { [weak self] in self?.progressRevision += 1 }
         if let data = preferences.data(forKey: "pdfSpeech.roots"),
            let saved = try? JSONDecoder().decode([RootRecord].self, from: data) {
             roots = saved

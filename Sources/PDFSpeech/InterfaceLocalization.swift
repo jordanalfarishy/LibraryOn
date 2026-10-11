@@ -33,7 +33,17 @@ enum InterfaceLocalization {
             ("Gagal menyimpan penanda: ", "", "Gagal menyimpan penanda: %@"),
             ("Gagal menghapus penanda: ", "", "Gagal menghapus penanda: %@"),
             ("Tata balon belum tersimpan: ", "", "Tata balon belum tersimpan: %@"),
-            ("Video tidak dapat dibuka: ", "", "Video tidak dapat dibuka: %@")
+            ("Video tidak dapat dibuka: ", "", "Video tidak dapat dibuka: %@"),
+            ("Folder ", " siap. Progres akan digabung saat aplikasi aktif.",
+              "Folder %@ siap. Progres akan digabung saat aplikasi aktif."),
+            ("Progres tersinkron dengan ", ".", "Progres tersinkron dengan %@."),
+            ("Sinkronisasi gagal: ", "", "Sinkronisasi gagal: %@"),
+            ("Folder sinkronisasi perlu dipilih ulang: ", "",
+              "Folder sinkronisasi perlu dipilih ulang: %@"),
+            ("Folder sinkronisasi gagal dibuka: ", "",
+              "Folder sinkronisasi gagal dibuka: %@"),
+            ("Dua pustaka bernama ", ". Ubah salah satu nama folder agar progres tidak tertukar.",
+              "Dua pustaka bernama %@. Ubah salah satu nama folder agar progres tidak tertukar.")
         ]
         for pattern in patterns where key.hasPrefix(pattern.prefix) && key.hasSuffix(pattern.suffix) {
             let value = String(key.dropFirst(pattern.prefix.count).dropLast(pattern.suffix.count))

@@ -31,6 +31,7 @@
 "LibraryOn membaca PDF berbasis teks dan EPUB reflowable tanpa DRM. Suara sistem yang sudah terpasang dapat dipakai tanpa jaringan." = "LibraryOn reads text based PDFs and DRM free reflowable EPUBs. Installed system voices work offline.";
 "Reset semua progres dan penanda bacaan?" = "Reset all reading progress and bookmarks?";
 "Posisi baca dan semua penanda akan dihapus. File buku dan folder pustaka tetap ada." = "Reading positions and all bookmarks will be removed. Book files and library folders will remain.";
+"Posisi baca akan dihapus di perangkat lain saat sinkronisasi berjalan. Penanda lokal juga dihapus. File buku tetap ada." = "Reading positions will be removed from other devices when they sync. Local bookmarks are also removed. Book files remain.";
 "Buka" = "Open";
 "Hapus" = "Delete";
 "Batal" = "Cancel";
@@ -349,3 +350,19 @@
 "Ekspor audio gagal: %@" = "Audio export failed: %@";
 "Kalimat %d / %d" = "Sentence %d / %d";
 "Tutup pemutar" = "Close player";
+"Sinkronisasi progres" = "Progress sync";
+"Folder cloud" = "Cloud folder";
+"Belum dipilih" = "Not selected";
+"Pilih folder…" = "Choose Folder…";
+"Sinkronkan sekarang" = "Sync Now";
+"Putuskan" = "Disconnect";
+"Pilih folder Google Drive atau OneDrive yang tersedia di Finder. LibraryOn menyimpan satu file LibraryOn-progress.json; buku tetap di folder asal. Gunakan nama folder pustaka dan struktur buku yang sama di perangkat lain." = "Choose a Google Drive or OneDrive folder available in Finder. LibraryOn saves one LibraryOn-progress.json file; books remain in their original folders. Use the same library folder name and book structure on other devices.";
+"Pilih folder Google Drive atau OneDrive untuk menyinkronkan progres." = "Choose a Google Drive or OneDrive folder to sync progress.";
+"Pilih folder yang disinkronkan Google Drive atau OneDrive. LibraryOn akan membuat satu file progres di dalamnya." = "Choose a folder synced by Google Drive or OneDrive. LibraryOn will create one progress file inside it.";
+"Folder %@ siap. Progres akan digabung saat aplikasi aktif." = "Folder %@ is ready. Progress merges while the app is active.";
+"Progres tersinkron dengan %@." = "Progress synced with %@.";
+"Sinkronisasi gagal: %@" = "Sync failed: %@";
+"Folder sinkronisasi perlu dipilih ulang: %@" = "Choose the sync folder again: %@";
+"Folder sinkronisasi gagal dibuka: %@" = "Could not open the sync folder: %@";
+"Dua pustaka bernama %@. Ubah salah satu nama folder agar progres tidak tertukar." = "Two libraries are named %@. Rename one folder so progress cannot be mixed up.";
+"Sinkronisasi dimatikan. Progres lokal tetap tersedia." = "Sync is off. Local progress remains available.";
