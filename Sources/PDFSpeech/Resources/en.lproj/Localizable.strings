@@ -155,6 +155,10 @@
 "Buka lokasi kalimat di PDF" = "Show this sentence in the PDF";
 "Bab sebelumnya" = "Previous chapter";
 "Bab berikutnya" = "Next chapter";
+"Buku sebelumnya" = "Previous book";
+"Buku berikutnya" = "Next book";
+"Buku sebelumnya (↑)" = "Previous book (↑)";
+"Buku berikutnya (↓)" = "Next book (↓)";
 "Perkecil Teks" = "Decrease Text Size";
 "Perbesar Teks" = "Increase Text Size";
 "Ukuran Standar (100%)" = "Default Size (100%)";

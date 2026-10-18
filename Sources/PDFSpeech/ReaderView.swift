@@ -929,23 +929,35 @@ struct PDFReaderView: View {
 
     private var pageControls: some View {
         HStack(spacing: 8) {
-            Button { followReading = false; pageIndex = max(0, pageIndex - 1) } label: {
+            Button {
+                followReading = false
+                if pageIndex > 0 { pageIndex -= 1 }
+                else { library.openAdjacentBook(from: book, direction: .previous) }
+            } label: {
                 Image(systemName: "arrow.up")
             }
             .keyboardShortcut(.upArrow, modifiers: [])
-            .disabled(document == nil || pageIndex == 0)
-            .help("Halaman sebelumnya (↑)")
-            .accessibilityLabel("Halaman sebelumnya")
+            .disabled(document == nil || (pageIndex == 0 &&
+                library.adjacentBook(to: book, direction: .previous) == nil))
+            .help(pageIndex == 0 ? "Buku sebelumnya (↑)" : "Halaman sebelumnya (↑)")
+            .accessibilityLabel(pageIndex == 0 ? "Buku sebelumnya" : "Halaman sebelumnya")
             Text("\(min(pageIndex + 1, document?.pageCount ?? 0)) / \(document?.pageCount ?? 0)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.primary)
-            Button { followReading = false; pageIndex = min((document?.pageCount ?? 1) - 1, pageIndex + 1) } label: {
+            Button {
+                followReading = false
+                if pageIndex + 1 < (document?.pageCount ?? 0) { pageIndex += 1 }
+                else { library.openAdjacentBook(from: book, direction: .next) }
+            } label: {
                 Image(systemName: "arrow.down")
             }
             .keyboardShortcut(.downArrow, modifiers: [])
-            .disabled(document == nil || pageIndex >= (document?.pageCount ?? 1) - 1)
-            .help("Halaman berikutnya (↓)")
-            .accessibilityLabel("Halaman berikutnya")
+            .disabled(document == nil || (pageIndex + 1 >= (document?.pageCount ?? 0) &&
+                library.adjacentBook(to: book, direction: .next) == nil))
+            .help(pageIndex + 1 >= (document?.pageCount ?? 0)
+                  ? "Buku berikutnya (↓)" : "Halaman berikutnya (↓)")
+            .accessibilityLabel(pageIndex + 1 >= (document?.pageCount ?? 0)
+                                ? "Buku berikutnya" : "Halaman berikutnya")
             Menu {
                 Toggle("Tampilan Teks", isOn: $showText)
                 Divider()
@@ -1056,13 +1068,20 @@ struct PDFReaderView: View {
             return
         }
         let saved = library.progressStore.value(for: book.id)
-        pageIndex = min(max(0, saved?.pdfPage ?? 0), max(0, loaded.pageCount - 1))
+        pageIndex = switch library.readerEntryPoint {
+        case .resume: min(max(0, saved?.pdfPage ?? 0), max(0, loaded.pageCount - 1))
+        case .start: 0
+        case .end: max(0, loaded.pageCount - 1)
+        }
         library.progressStore.markOpened(book.id)
         library.progressStore.savePDFPageCount(book.id, count: loaded.pageCount)
         outlineEntries = collectOutline(from: loaded)
         bookmarks = library.progressStore.bookmarks(for: book.id)
         loadError = nil
         document = loaded
+        if library.readerEntryPoint != .resume {
+            library.progressStore.savePDFView(book.id, page: pageIndex)
+        }
     }
 
     private func retryLoad() {
@@ -1096,7 +1115,8 @@ struct PDFReaderView: View {
         let session = UUID()
         extractionSession = session
         pendingRestoreIndex = restorePageAfterLayout == nil
-            ? library.progressStore.value(for: book.id)?.sentenceIndex ?? 0 : nil
+            ? (library.readerEntryPoint == .resume
+                ? library.progressStore.value(for: book.id)?.sentenceIndex ?? 0 : 0) : nil
         let options = readingOptions
         player.onSegmentChange = { [store = library.progressStore, id = book.id] index, segment in
             store.savePDFAudio(id, sentence: index)

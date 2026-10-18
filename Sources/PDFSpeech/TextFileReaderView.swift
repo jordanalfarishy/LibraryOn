@@ -78,6 +78,12 @@ struct TextFileReaderView: View {
                             proxy.scrollTo(index, anchor: .center)
                         }
                     }
+                    .task {
+                        await Task.yield()
+                        if !document.segments.isEmpty {
+                            proxy.scrollTo(player.currentIndex, anchor: .center)
+                        }
+                    }
                 }
             } else if let error {
                 VStack(spacing: 12) {
@@ -107,6 +113,20 @@ struct TextFileReaderView: View {
         }
         .toolbar {
             if isVisible {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        library.openAdjacentBook(from: book, direction: .previous)
+                    } label: { Image(systemName: "chevron.left") }
+                    .disabled(library.adjacentBook(to: book, direction: .previous) == nil)
+                    .help("Buku sebelumnya")
+                    .accessibilityLabel("Buku sebelumnya")
+                    Button {
+                        library.openAdjacentBook(from: book, direction: .next)
+                    } label: { Image(systemName: "chevron.right") }
+                    .disabled(library.adjacentBook(to: book, direction: .next) == nil)
+                    .help("Buku berikutnya")
+                    .accessibilityLabel("Buku berikutnya")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button("Ekspor satu berkas…") { exportAudio() }
@@ -146,8 +166,15 @@ struct TextFileReaderView: View {
             }.value
             guard !Task.isCancelled else { return }
             document = loaded
-            let saved = library.progressStore.value(for: book.id)?.sentenceIndex ?? 0
-            player.setSegments(loaded.segments, startAt: saved)
+            let start = switch library.readerEntryPoint {
+            case .resume: library.progressStore.value(for: book.id)?.sentenceIndex ?? 0
+            case .start: 0
+            case .end: max(0, loaded.segments.count - 1)
+            }
+            player.setSegments(loaded.segments, startAt: start)
+            if library.readerEntryPoint != .resume && !loaded.segments.isEmpty {
+                library.progressStore.saveTextPosition(book.id, sentence: start)
+            }
             player.onSegmentChange = { [store = library.progressStore, id = book.id] index, _ in
                 store.savePDFAudio(id, sentence: index)
             }

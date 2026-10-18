@@ -209,6 +209,13 @@ struct ProgressChange: OptionSet {
         }
     }
 
+    func saveTextPosition(_ bookID: String, sentence: Int) {
+        update(bookID, change: .audio) {
+            $0.sentenceIndex = sentence
+            $0.lastOpened = .now
+        }
+    }
+
     func bookmarks(for bookID: String) -> [ReadingBookmark] {
         (bookmarks[bookID] ?? []).sorted { $0.createdAt > $1.createdAt }
     }

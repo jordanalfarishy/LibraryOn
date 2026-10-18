@@ -193,6 +193,20 @@ struct RootRecord: Codable, Identifiable {
     var cloudBacked: Bool? = nil
 }
 
+enum ReaderEntryPoint: Equatable {
+    case resume
+    case start
+    case end
+}
+
+enum BookNavigationDirection: Equatable {
+    case previous
+    case next
+
+    var offset: Int { self == .previous ? -1 : 1 }
+    var entryPoint: ReaderEntryPoint { self == .previous ? .end : .start }
+}
+
 @MainActor @Observable final class LibraryModel {
     var roots: [RootRecord] = []
     var activeRootID: UUID?
@@ -231,6 +245,7 @@ struct RootRecord: Codable, Identifiable {
     var progressRevision = 0
     var videoProgressRevision = 0
     var activeBook: BookFile?
+    var readerEntryPoint: ReaderEntryPoint = .resume
     private(set) var playbackBook: BookFile?
     private(set) var playbackPlayer: SpeechPlayer?
     var selectedBookID: String? { didSet { persistCurrentRoot() } }
@@ -644,7 +659,7 @@ struct RootRecord: Codable, Identifiable {
         }
     }
 
-    func open(_ book: BookFile) {
+    func open(_ book: BookFile, entryPoint: ReaderEntryPoint = .resume) {
         if unavailableBookIDs.contains(book.id), activeRoot?.cloudBacked != true {
             if book.format == .video {
                 selectedBookID = book.id
@@ -655,15 +670,15 @@ struct RootRecord: Codable, Identifiable {
             return
         }
         if activeRoot?.cloudBacked == true || CloudFileAccess.needsDownload(book.url) {
-            openCloudBook(book)
+            openCloudBook(book, entryPoint: entryPoint)
             return
         }
         cancelCloudOpen()
         cloudOpenErrorBookID = nil
-        openAvailableBook(book)
+        openAvailableBook(book, entryPoint: entryPoint)
     }
 
-    private func openCloudBook(_ book: BookFile) {
+    private func openCloudBook(_ book: BookFile, entryPoint: ReaderEntryPoint) {
         cloudOpenTask?.cancel()
         cloudOpenGeneration += 1
         let generation = cloudOpenGeneration
@@ -688,7 +703,7 @@ struct RootRecord: Codable, Identifiable {
                 self.openingCloudBookID = nil
                 self.cloudOpenTask = nil
                 self.unavailableBookIDs.remove(book.id)
-                self.openAvailableBook(book)
+                self.openAvailableBook(book, entryPoint: entryPoint)
             } catch {
                 guard let self, !Task.isCancelled,
                       self.cloudOpenGeneration == generation,
@@ -709,7 +724,8 @@ struct RootRecord: Codable, Identifiable {
         openingCloudBookID = nil
     }
 
-    private func openAvailableBook(_ book: BookFile) {
+    private func openAvailableBook(_ book: BookFile,
+                                   entryPoint: ReaderEntryPoint = .resume) {
         guard FileManager.default.isReadableFile(atPath: book.url.path) else {
             unavailableBookIDs.insert(book.id)
             scanError = "File buku tidak tersedia. Pilih lokasi baru untuk menghubungkan progresnya."
@@ -740,7 +756,7 @@ struct RootRecord: Codable, Identifiable {
             openVideo(book)
             return
         }
-        openNow(book)
+        openNow(book, entryPoint: entryPoint)
     }
 
     private func openVideo(_ book: BookFile) {
@@ -835,20 +851,49 @@ struct RootRecord: Codable, Identifiable {
         return true
     }
 
-    private func openNow(_ book: BookFile) {
+    private func openNow(_ book: BookFile,
+                         entryPoint: ReaderEntryPoint = .resume) {
         selectedBookID = book.id
+        readerEntryPoint = entryPoint
         activeBook = book
         isReaderOpen = true
+    }
+
+    func adjacentBook(to book: BookFile, direction: BookNavigationDirection) -> BookFile? {
+        let visible = visibleBooks.filter { $0.format != .video }
+        let candidates: [BookFile]
+        if visible.contains(where: { $0.id == book.id }) {
+            candidates = visible
+        } else {
+            candidates = books.filter {
+                $0.format != .video && $0.folderPath == book.folderPath
+            }.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        }
+        guard let index = candidates.firstIndex(where: { $0.id == book.id }),
+              candidates.indices.contains(index + direction.offset) else { return nil }
+        let adjacent = candidates[index + direction.offset]
+        guard !changedBookIDs.contains(adjacent.id),
+              !unavailableBookIDs.contains(adjacent.id) || activeRoot?.cloudBacked == true
+        else { return nil }
+        return adjacent
+    }
+
+    func openAdjacentBook(from book: BookFile, direction: BookNavigationDirection) {
+        guard isReaderOpen, activeBook?.id == book.id,
+              let adjacent = adjacentBook(to: book, direction: direction) else { return }
+        open(adjacent, entryPoint: direction.entryPoint)
     }
 
     func closeReader() {
         isReaderOpen = false
         activeBook = nil
+        readerEntryPoint = .resume
     }
 
     func showPlaybackBook() {
         guard let playbackBook else { return }
         if playbackRootID == activeRootID { selectedBookID = playbackBook.id }
+        readerEntryPoint = .resume
         activeBook = playbackBook
         isReaderOpen = true
     }

@@ -35,6 +35,7 @@
     });
     const params = new URLSearchParams(location.search);
     const initialCFI = params.get('cfi') || undefined;
+    const openAtEnd = params.get('entry') === 'end';
     const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
     function normalizeAppearance(value) {
       const font = value.fontPercent == null ? NaN : Number(value.fontPercent);
@@ -146,7 +147,8 @@
       const location = rendition.currentLocation();
       post({kind:'chapter', index:sectionIndex ?? location?.start?.index ?? 0,
             paragraphs:blocks.map(el => el.textContent),
-            cfi:location?.start?.cfi || ''});
+            cfi:location?.start?.cfi || '',
+            chapterCount:book.spine?.spineItems?.length || 0});
       if (location?.start?.cfi) {
         post({kind:'location', cfi:location.start.cfi,
               index:location.start.index ?? sectionIndex ?? 0,
@@ -298,6 +300,18 @@
       book.ready.then(() => {
         post({kind:'loading', message:initialCFI
           ? 'Memulihkan lokasi EPUB…' : 'Memuat bab EPUB…'});
+        if (openAtEnd) {
+          const items = book.spine?.spineItems || [];
+          const last = items[items.length - 1];
+          return rendition.display(last?.href).then(() => new Promise(resolve => {
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+              const container = rendition.manager?.container;
+              if (container) container.scrollTop = container.scrollHeight;
+              rendition.reportLocation();
+              resolve();
+            }));
+          }));
+        }
         return rendition.display(initialCFI);
       }).then(() => post({kind:'ready'}))
         .catch(error => post({kind:'error', message:String(error)}));

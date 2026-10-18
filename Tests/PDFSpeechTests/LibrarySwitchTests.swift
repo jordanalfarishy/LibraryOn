@@ -3,6 +3,67 @@ import XCTest
 @testable import PDFSpeech
 
 @MainActor final class LibrarySwitchTests: XCTestCase {
+    func testAdjacentReadingBooksFollowLibraryOrderAndSkipVideos() throws {
+        let suiteName = "libraryon-navigation-\(UUID().uuidString)"
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { preferences.removePersistentDomain(forName: suiteName) }
+        let library = LibraryModel(preferences: preferences,
+                                   progressStore: ProgressStore(inMemory: true),
+                                   indexStore: LibraryIndexStore(inMemory: true))
+        let root = URL(fileURLWithPath: "/LibraryOn-Navigation")
+        func book(_ id: String, _ title: String, _ format: BookFormat,
+                  modified: TimeInterval) -> BookFile {
+            BookFile(id: id, relativePath: "\(title).\(format.rawValue)", folderPath: "",
+                     url: root.appendingPathComponent("\(title).\(format.rawValue)"),
+                     title: title, format: format, size: 1,
+                     modifiedAt: Date(timeIntervalSince1970: modified))
+        }
+        let first = book("first", "Alpha", .pdf, modified: 1)
+        let video = book("video", "Between", .video, modified: 2)
+        let second = book("second", "Charlie", .epub, modified: 3)
+        library.books = [second, video, first]
+
+        XCTAssertEqual(library.adjacentBook(to: first, direction: .next)?.id, second.id)
+        XCTAssertEqual(library.adjacentBook(to: second, direction: .previous)?.id, first.id)
+        XCTAssertNil(library.adjacentBook(to: first, direction: .previous))
+        library.sortByModified = true
+        XCTAssertEqual(library.adjacentBook(to: second, direction: .next)?.id, first.id)
+    }
+
+    func testCrossingBookBoundaryOpensStartOrEndAndPreservesProgress() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("libraryon-reader-boundary-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstURL = root.appendingPathComponent("Alpha.pdf")
+        let secondURL = root.appendingPathComponent("Beta.pdf")
+        try Data("one".utf8).write(to: firstURL)
+        try Data("two".utf8).write(to: secondURL)
+        let rootID = UUID()
+        let first = try XCTUnwrap(FolderScanner.book(at: firstURL, root: root, rootID: rootID))
+        let second = try XCTUnwrap(FolderScanner.book(at: secondURL, root: root, rootID: rootID))
+        let suiteName = "libraryon-reader-boundary-\(UUID().uuidString)"
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { preferences.removePersistentDomain(forName: suiteName) }
+        let store = ProgressStore(inMemory: true)
+        let library = LibraryModel(preferences: preferences, progressStore: store,
+                                   indexStore: LibraryIndexStore(inMemory: true))
+        library.books = [first, second]
+        store.savePDFView(first.id, page: 3)
+        library.activeBook = first
+        library.isReaderOpen = true
+
+        library.openAdjacentBook(from: first, direction: .next)
+        XCTAssertEqual(library.activeBook?.id, second.id)
+        XCTAssertEqual(library.readerEntryPoint, .start)
+        XCTAssertEqual(store.value(for: first.id)?.pdfPage, 3)
+        XCTAssertEqual(store.value(for: first.id)?.finished, false)
+
+        library.openAdjacentBook(from: second, direction: .previous)
+        XCTAssertEqual(library.activeBook?.id, first.id)
+        XCTAssertEqual(library.readerEntryPoint, .end)
+    }
+
     func testFolderScanPublishesPartialResultsBeforeCompletion() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("pdf-speech-batches-\(UUID().uuidString)")

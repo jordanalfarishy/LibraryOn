@@ -37,6 +37,7 @@ struct EPUBAppearance: Equatable {
 
 @MainActor @Observable final class EPUBSession {
     var chapter = 0
+    var chapterCount = 0
     var isReady = false
     var error: String?
     var loadingPhase = "Menyiapkan EPUB…"
@@ -55,11 +56,13 @@ struct EPUBAppearance: Equatable {
 
     func attach(_ webView: WKWebView) { self.webView = webView }
 
-    func handle(_ payload: [String: Any], book: BookFile, store: ProgressStore) {
+    func handle(_ payload: [String: Any], book: BookFile, store: ProgressStore,
+                entryPoint: ReaderEntryPoint = .resume) {
         guard let kind = payload["kind"] as? String else { return }
         switch kind {
         case "chapter":
             let incoming = payload["index"] as? Int ?? 0
+            chapterCount = payload["chapterCount"] as? Int ?? chapterCount
             let paragraphs = payload["paragraphs"] as? [String] ?? []
             if !firstChapter, incoming == chapter, paragraphs == currentParagraphs {
                 return
@@ -71,6 +74,8 @@ struct EPUBAppearance: Equatable {
                 start = pendingAudioResume.sentence
                 self.pendingAudioResume = nil
                 resumeOnNextChapter = false
+            } else if firstChapter && entryPoint != .resume {
+                start = 0
             } else if firstChapter {
                 let audioChapter = saved?.epubAudioChapter ?? saved?.epubChapter ?? incoming
                 if audioChapter != incoming {
@@ -131,8 +136,9 @@ struct EPUBAppearance: Equatable {
         case "location":
             currentCFI = payload["cfi"] as? String ?? ""
             chapter = payload["index"] as? Int ?? chapter
+            chapterCount = payload["chapterCount"] as? Int ?? chapterCount
             store.saveEPUB(book.id, cfi: currentCFI, chapter: chapter,
-                           chapterCount: payload["chapterCount"] as? Int)
+                           chapterCount: chapterCount)
         case "manualScroll":
             followReading = false
         case "startAtParagraph":
@@ -163,9 +169,12 @@ struct EPUBAppearance: Equatable {
         }
     }
 
-    func nextChapter() {
+    func nextChapter(onBookBoundary: @escaping @MainActor () -> Void) {
         player.stop()
-        webView?.evaluateJavaScript("pdfSpeechNext()")
+        webView?.evaluateJavaScript("pdfSpeechNext()") { value, error in
+            guard error == nil, value as? Bool == false else { return }
+            Task { @MainActor in onBookBoundary() }
+        }
     }
 
     func returnToReading() {
@@ -215,9 +224,12 @@ struct EPUBAppearance: Equatable {
         }
     }
 
-    func previousChapter() {
+    func previousChapter(onBookBoundary: @escaping @MainActor () -> Void) {
         player.stop()
-        webView?.evaluateJavaScript("pdfSpeechPrevious()")
+        webView?.evaluateJavaScript("pdfSpeechPrevious()") { value, error in
+            guard error == nil, value as? Bool == false else { return }
+            Task { @MainActor in onBookBoundary() }
+        }
     }
 
     func go(to target: String) {
@@ -267,6 +279,7 @@ private struct EPUBCanvas: NSViewRepresentable {
     let folder: URL
     let offlineRule: WKContentRuleList
     let initialCFI: String
+    let entryPoint: ReaderEntryPoint
     let appearance: EPUBAppearance
     let session: EPUBSession
     let onMessage: @MainActor ([String: Any]) -> Void
@@ -291,6 +304,9 @@ private struct EPUBCanvas: NSViewRepresentable {
         context.coordinator.monitorManualNavigation(in: view, session: session)
         var components = URLComponents(string: "book://reader/reader.html")!
         components.queryItems = appearance.queryItems
+        if entryPoint == .end {
+            components.queryItems?.append(URLQueryItem(name: "entry", value: "end"))
+        }
         if !initialCFI.isEmpty {
             components.queryItems?.append(URLQueryItem(name: "cfi", value: initialCFI))
         }
@@ -430,10 +446,13 @@ struct EPUBReaderView: View {
                 ZStack {
                     EPUBCanvas(folder: folder,
                                offlineRule: offlineRule,
-                               initialCFI: library.progressStore.value(for: book.id)?.epubCFI ?? "",
+                               initialCFI: library.readerEntryPoint == .resume
+                                   ? library.progressStore.value(for: book.id)?.epubCFI ?? "" : "",
+                               entryPoint: library.readerEntryPoint,
                                appearance: appearance,
                                session: session) { payload in
-                        session.handle(payload, book: book, store: library.progressStore)
+                        session.handle(payload, book: book, store: library.progressStore,
+                                       entryPoint: library.readerEntryPoint)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     if let error = session.error {
@@ -469,21 +488,35 @@ struct EPUBReaderView: View {
         }
         .toolbar {
             if isVisible { ToolbarItemGroup(placement: .primaryAction) {
-                Button { session.previousChapter() } label: {
+                Button {
+                    session.previousChapter {
+                        library.openAdjacentBook(from: book, direction: .previous)
+                    }
+                } label: {
                     Image(systemName: "chevron.left")
                 }
-                .disabled(!session.isReady)
-                .help("Bab sebelumnya")
-                .accessibilityLabel("Bab sebelumnya")
+                .disabled(!session.isReady || (session.chapter == 0 &&
+                    library.adjacentBook(to: book, direction: .previous) == nil))
+                .help(session.chapter == 0 ? "Buku sebelumnya" : "Bab sebelumnya")
+                .accessibilityLabel(session.chapter == 0 ? "Buku sebelumnya" : "Bab sebelumnya")
                 Text(String(format: InterfaceLocalization.string("Bab %d", locale: locale),
                             session.chapter + 1))
                     .font(.caption.monospacedDigit())
-                Button { session.nextChapter() } label: {
+                Button {
+                    session.nextChapter {
+                        library.openAdjacentBook(from: book, direction: .next)
+                    }
+                } label: {
                     Image(systemName: "chevron.right")
                 }
-                .disabled(!session.isReady)
-                .help("Bab berikutnya")
-                .accessibilityLabel("Bab berikutnya")
+                .disabled(!session.isReady || (session.chapterCount > 0 &&
+                    session.chapter >= session.chapterCount - 1 &&
+                    library.adjacentBook(to: book, direction: .next) == nil))
+                .help(session.chapterCount > 0 && session.chapter >= session.chapterCount - 1
+                      ? "Buku berikutnya" : "Bab berikutnya")
+                .accessibilityLabel(session.chapterCount > 0 &&
+                    session.chapter >= session.chapterCount - 1
+                    ? "Buku berikutnya" : "Bab berikutnya")
                 Menu {
                     if session.toc.isEmpty {
                         Text("EPUB ini tidak memiliki daftar isi")

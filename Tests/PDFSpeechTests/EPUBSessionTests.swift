@@ -34,6 +34,24 @@ import XCTest
         XCTAssertEqual(store.value(for: book.id)?.epubChapter, 3)
     }
 
+    func testEnteringPreviousBookAtEndDoesNotResumeOldAudioChapter() {
+        let book = BookFile(id: "epub-entry-\(UUID().uuidString)",
+                            relativePath: "book.epub", folderPath: "",
+                            url: URL(fileURLWithPath: "/private/tmp/book.epub"),
+                            title: "Book", format: .epub, size: 100,
+                            modifiedAt: Date(timeIntervalSince1970: 1))
+        let store = ProgressStore(inMemory: true)
+        store.saveEPUBAudio(book.id, chapter: 1, cfi: "old-cfi", sentence: 3)
+        let session = EPUBSession()
+        session.handle(["kind": "chapter", "index": 4,
+                        "paragraphs": ["Last chapter. Another sentence."],
+                        "cfi": "end-cfi"], book: book, store: store,
+                       entryPoint: .end)
+        XCTAssertNil(session.pendingAudioResume)
+        XCTAssertEqual(session.chapter, 4)
+        XCTAssertEqual(session.player.currentIndex, 0)
+    }
+
     func testTransientEmptyRenderDoesNotCoverValidSpokenChapter() {
         let book = BookFile(id: "epub-render-\(UUID().uuidString)",
                             relativePath: "book.epub", folderPath: "",
