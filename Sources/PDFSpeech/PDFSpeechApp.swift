@@ -26,7 +26,6 @@ struct PDFSpeechApp: App {
                                            ? library.activeBook?.title ?? "LibraryOn" : "LibraryOn",
                                            showsTitle: library.isReaderOpen))
                 .background(DockReopenRegistration(appDelegate: appDelegate))
-                .onAppear { AppIconAppearance.shared.start() }
         }
         .commands {
             CommandGroup(replacing: .newItem) {

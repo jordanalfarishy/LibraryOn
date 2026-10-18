@@ -234,6 +234,7 @@ enum BookNavigationDirection: Equatable {
     var sortByModified = false { didSet { persistCurrentRoot() } }
     var isScanning = false
     var scanError: String?
+    var rootAccessFailed = false
     var indexNotice: String?
     var isIndexVerified = false
     var unavailableBookIDs: Set<String> = []
@@ -474,6 +475,7 @@ enum BookNavigationDirection: Equatable {
         searchAllFolders = false
         isScanning = false
         scanError = nil
+        rootAccessFailed = false
         indexNotice = nil
         isIndexVerified = false
         unavailableBookIDs = []
@@ -496,6 +498,7 @@ enum BookNavigationDirection: Equatable {
                 if accessStarted { url.stopAccessingSecurityScopedResource() }
                 accessStarted = false
                 rootURL = nil
+                rootAccessFailed = true
                 scanError = "Folder \"\(record.name)\" tidak tersedia. Pilih ulang foldernya."
                 restoreIndex(rootID: id, url: url,
                              activationGeneration: activationGeneration, scanAfterLoad: false)
@@ -523,6 +526,7 @@ enum BookNavigationDirection: Equatable {
             rootURL = nil
             books = []
             folders = [FolderEntry(path: "")]
+            rootAccessFailed = true
             scanError = "Akses ke \"\(record.name)\" perlu diperbarui. Pilih ulang foldernya."
         }
     }
@@ -566,13 +570,16 @@ enum BookNavigationDirection: Equatable {
                     self.isScanning = false
                     guard FileManager.default.isReadableFile(atPath: rootURL.path) else {
                         self.isIndexVerified = false
+                        self.rootAccessFailed = true
                         self.scanError = "Folder \"\(self.activeRoot?.name ?? rootURL.lastPathComponent)\" tidak tersedia. Pasang kembali volume atau pilih ulang foldernya."
                         return
                     }
                     guard snapshot.scanSucceeded else {
+                        self.rootAccessFailed = true
                         self.scanError = "Folder pustaka tidak dapat dibaca saat ini. Periksa volume atau akses folder, lalu pilih Segarkan."
                         return
                     }
+                    self.rootAccessFailed = false
                     let unavailable = snapshot.inaccessibleFolders.compactMap { path -> String? in
                         let prefix = rootURL.standardizedFileURL.path + "/"
                         guard path.hasPrefix(prefix) else { return nil }

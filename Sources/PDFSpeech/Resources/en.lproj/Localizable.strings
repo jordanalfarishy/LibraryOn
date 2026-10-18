@@ -258,6 +258,8 @@
 "Buka item terpilih" = "Open selected item";
 "%d buku · %d video · %d folder" = "%d books · %d videos · %d folders";
 "Belum ada item di folder ini" = "No items in this folder yet";
+"Folder pustaka tidak dapat dibuka" = "This library folder can't be opened";
+"Buka pustaka lain" = "Open another library";
 "Buku PDF, EPUB, TXT, DOCX, dan video dari folder ini akan muncul di sini." = "PDF, EPUB, TXT, DOCX books, and videos from this folder will appear here.";
 "Buku dan Video" = "Books and Videos";
 "Putar Video" = "Play Video";

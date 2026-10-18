@@ -28,6 +28,23 @@ struct LibraryView: View {
     @State private var showResetConfirmation = false
     @State private var isFolderDropTargeted = false
 
+    private var otherRoots: [RootRecord] {
+        library.roots.filter { $0.id != library.activeRootID }
+    }
+
+    private var isEmptyAccessFailure: Bool {
+        library.search.isEmpty && !library.isScanning && library.rootAccessFailed &&
+            library.visibleFolders.isEmpty && library.visibleBooks.isEmpty
+    }
+
+    private var switchLibraryMenu: some View {
+        Menu("Buka pustaka lain") {
+            ForEach(otherRoots) { root in
+                Button(root.name) { library.activateRoot(root.id) }
+            }
+        }
+    }
+
     var body: some View {
         ZStack {
             if !library.isReaderOpen {
@@ -223,8 +240,12 @@ struct LibraryView: View {
                         .padding(.horizontal, 17)
                         .padding(.top, 12)
                         .padding(.bottom, 4)
-                    folderOutline
-                        .id(active.id)
+                    if library.folders.count > 1 {
+                        folderOutline
+                            .id(active.id)
+                    } else {
+                        sidebarRootOnly
+                    }
                 }
                 Divider().padding(.horizontal, 14)
                 Menu {
@@ -304,6 +325,23 @@ struct LibraryView: View {
         .scrollContentBackground(.hidden)
     }
 
+    private var sidebarRootOnly: some View {
+        Button {
+            library.selectedFolder = ""
+            library.search = ""
+        } label: {
+            Label("Semua Buku", systemImage: "books.vertical.fill")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(AppTheme.quietAccent,
+                            in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
     private var libraryContent: some View {
         @Bindable var library = library
         return VStack(spacing: 0) {
@@ -335,7 +373,7 @@ struct LibraryView: View {
                 .padding(9)
                 .background(AppTheme.surface)
             }
-            if let error = library.scanError {
+            if let error = library.scanError, !isEmptyAccessFailure {
                 HStack(spacing: 10) {
                     Image(systemName: "exclamationmark.triangle")
                     Text(InterfaceLocalization.string(error, locale: locale))
@@ -356,6 +394,7 @@ struct LibraryView: View {
                     } else {
                         Button("Pilih Ulang Folder…") { library.relinkActiveRoot() }
                     }
+                    if !otherRoots.isEmpty { switchLibraryMenu }
                 }
                 .font(.callout)
                 .padding(9)
@@ -489,45 +528,66 @@ struct LibraryView: View {
     }
 
     private var emptyContent: some View {
-        VStack(spacing: 13) {
-            Image(systemName: library.isScanning ? "arrow.clockwise" :
-                  (library.search.isEmpty ? "books.vertical" : "magnifyingglass"))
-                .font(.system(size: 25, weight: .medium))
-                .foregroundStyle(AppTheme.accent)
-                .frame(width: 58, height: 58)
-                .background(AppTheme.quietAccent,
-                            in: RoundedRectangle(cornerRadius: 15))
-            Text(library.isScanning ? "Memindai pustaka…" :
-                 (library.search.isEmpty ? "Belum ada item di folder ini" : "Tidak ada hasil"))
-                .font(.title3.weight(.semibold))
-            Text(library.search.isEmpty
-                 ? "Buku PDF, EPUB, TXT, DOCX, dan video dari folder ini akan muncul di sini."
-                 : "Coba kata kunci lain atau cari di semua folder pustaka.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            if library.isScanning {
-                ProgressView().controlSize(.small)
-                    .padding(.top, 4)
-            } else if !library.search.isEmpty {
-                Button("Hapus pencarian") { library.search = "" }
-                    .buttonStyle(.bordered)
-                    .padding(.top, 4)
-            } else {
-                Button("Segarkan folder", systemImage: "arrow.clockwise") {
-                    library.scan()
+        let accessFailed = isEmptyAccessFailure
+        return GeometryReader { viewport in
+            ScrollView {
+                VStack(spacing: 13) {
+                    Image(systemName: accessFailed ? "exclamationmark.triangle" :
+                          (library.isScanning ? "arrow.clockwise" :
+                          (library.search.isEmpty ? "books.vertical" : "magnifyingglass")))
+                        .font(.system(size: 25, weight: .medium))
+                        .foregroundStyle(AppTheme.accent)
+                        .frame(width: 58, height: 58)
+                        .background(AppTheme.quietAccent,
+                                    in: RoundedRectangle(cornerRadius: 15))
+                    Text(accessFailed ? "Folder pustaka tidak dapat dibuka" :
+                         (library.isScanning ? "Memindai pustaka…" :
+                         (library.search.isEmpty ? "Belum ada item di folder ini" : "Tidak ada hasil")))
+                        .font(.title3.weight(.semibold))
+                    Group {
+                        if accessFailed, let error = library.scanError {
+                            Text(InterfaceLocalization.string(error, locale: locale))
+                        } else {
+                            Text(library.search.isEmpty
+                                 ? "Buku PDF, EPUB, TXT, DOCX, dan video dari folder ini akan muncul di sini."
+                                 : "Coba kata kunci lain atau cari di semua folder pustaka.")
+                        }
+                    }
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    if accessFailed {
+                        HStack(spacing: 10) {
+                            Button("Pilih Ulang Folder…") { library.relinkActiveRoot() }
+                                .buttonStyle(.borderedProminent)
+                            if !otherRoots.isEmpty { switchLibraryMenu }
+                        }
+                        .padding(.top, 4)
+                    } else if library.isScanning {
+                        ProgressView().controlSize(.small)
+                            .padding(.top, 4)
+                    } else if !library.search.isEmpty {
+                        Button("Hapus pencarian") { library.search = "" }
+                            .buttonStyle(.bordered)
+                            .padding(.top, 4)
+                    } else {
+                        Button("Segarkan folder", systemImage: "arrow.clockwise") {
+                            library.scan()
+                        }
+                        .buttonStyle(.bordered)
+                        .padding(.top, 4)
+                    }
                 }
-                .buttonStyle(.bordered)
-                .padding(.top, 4)
+                .frame(maxWidth: 380)
+                .padding(30)
+                .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(AppTheme.border))
+                .padding(24)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: viewport.size.height)
             }
         }
-        .frame(maxWidth: 380)
-        .padding(30)
-        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(AppTheme.border))
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(24)
     }
 
     private var booksArea: some View {

@@ -562,6 +562,60 @@ import XCTest
         XCTAssertEqual(library.visibleBooks.map(\.title), ["Dua"])
     }
 
+    func testUnavailableActiveRootDoesNotBlockAnotherLibrary() async throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("libraryon-offline-root-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let healthy = base.appendingPathComponent("Healthy")
+        let disconnected = base.appendingPathComponent("Disconnected")
+        try FileManager.default.createDirectory(at: healthy, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: disconnected, withIntermediateDirectories: true)
+        try Data("book".utf8).write(to: healthy.appendingPathComponent("Available.txt"))
+
+        let suiteName = "libraryon-offline-root-\(UUID().uuidString)"
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { preferences.removePersistentDomain(forName: suiteName) }
+        let resolver: (RootRecord) throws -> (URL, Bool) = { record in
+            (URL(fileURLWithPath: String(decoding: record.bookmark, as: UTF8.self)), false)
+        }
+        let indexStore = LibraryIndexStore(inMemory: true)
+        let library = LibraryModel(preferences: preferences,
+                                   progressStore: ProgressStore(inMemory: true),
+                                   rootResolver: resolver,
+                                   bookmarkCreator: { Data($0.path.utf8) },
+                                   indexStore: indexStore)
+        XCTAssertTrue(library.addRoot(healthy))
+        try await waitForScan(library)
+        let healthyID = try XCTUnwrap(library.activeRootID)
+        XCTAssertTrue(library.addRoot(disconnected))
+        try await waitForScan(library)
+        let disconnectedID = try XCTUnwrap(library.activeRootID)
+        try FileManager.default.moveItem(at: disconnected,
+                                         to: base.appendingPathComponent("Moved"))
+
+        let reopened = LibraryModel(preferences: preferences,
+                                    progressStore: ProgressStore(inMemory: true),
+                                    rootResolver: resolver,
+                                    bookmarkCreator: { Data($0.path.utf8) },
+                                    indexStore: indexStore)
+        XCTAssertEqual(reopened.activeRootID, disconnectedID)
+        XCTAssertNotNil(reopened.scanError)
+        XCTAssertTrue(reopened.rootAccessFailed)
+        reopened.activateRoot(healthyID)
+        try await waitForScan(reopened)
+        XCTAssertEqual(reopened.visibleBooks.map(\.title), ["Available"])
+        XCTAssertNil(reopened.scanError)
+        XCTAssertFalse(reopened.rootAccessFailed)
+
+        reopened.activateRoot(disconnectedID)
+        XCTAssertNotNil(reopened.scanError)
+        XCTAssertTrue(reopened.rootAccessFailed)
+        reopened.activateRoot(healthyID)
+        try await waitForScan(reopened)
+        XCTAssertEqual(reopened.visibleBooks.map(\.title), ["Available"])
+        XCTAssertFalse(reopened.rootAccessFailed)
+    }
+
     func testRelinkMovedRootPreservesIdentityAndProgress() async throws {
         let base = FileManager.default.temporaryDirectory
             .appendingPathComponent("pdf-speech-relink-\(UUID().uuidString)")
