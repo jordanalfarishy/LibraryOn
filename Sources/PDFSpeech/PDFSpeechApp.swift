@@ -3,6 +3,7 @@ import SwiftUI
 
 @main
 struct PDFSpeechApp: App {
+    @NSApplicationDelegateAdaptor(LibraryAppDelegate.self) private var appDelegate
     @State private var library = LibraryModel()
     @AppStorage("LibraryOn.uiLanguage") private var uiLanguage = "system"
 
@@ -11,7 +12,7 @@ struct PDFSpeechApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("LibraryOn") {
+        WindowGroup("LibraryOn", id: "library") {
             Group {
                 if #available(macOS 15.0, *) {
                     MangaDownloadHost(library: library)
@@ -24,6 +25,7 @@ struct PDFSpeechApp: App {
                 .background(AppWindowTitle(title: library.isReaderOpen
                                            ? library.activeBook?.title ?? "LibraryOn" : "LibraryOn",
                                            showsTitle: library.isReaderOpen))
+                .background(DockReopenRegistration(appDelegate: appDelegate))
                 .onAppear { AppIconAppearance.shared.start() }
         }
         .commands {
@@ -36,6 +38,31 @@ struct PDFSpeechApp: App {
             SettingsView(library: library)
                 .environment(\.locale, interfaceLocale)
         }
+    }
+}
+
+private final class LibraryAppDelegate: NSObject, NSApplicationDelegate {
+    var openLibraryWindow: (() -> Void)?
+
+    func applicationShouldHandleReopen(_ application: NSApplication,
+                                       hasVisibleWindows: Bool) -> Bool {
+        guard !hasVisibleWindows, let openLibraryWindow else { return true }
+        openLibraryWindow()
+        application.activate(ignoringOtherApps: true)
+        return false
+    }
+}
+
+private struct DockReopenRegistration: View {
+    @Environment(\.openWindow) private var openWindow
+    let appDelegate: LibraryAppDelegate
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onAppear {
+                appDelegate.openLibraryWindow = { openWindow(id: "library") }
+            }
     }
 }
 

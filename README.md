@@ -6,7 +6,7 @@ _Bahasa Indonesia: LibraryOn membantu menjelajahi folder PDF/EPUB/TXT/DOCX, memb
 
 ## Project status
 
-This repository contains a **prototype**, currently version **0.8.1 (24)**. The M0–M3 implementation gates have passed. M4 verification and the B01–B12/B15 backlog gates remain open where noted. The local app build uses an ad-hoc signature. There is no notarized release or verified clean-Mac installer yet. The earlier [M4 local beta package](Docs/M4-local-beta.md) remains version 0.5.3.
+This repository contains a **prototype**, currently version **0.8.2 (25)**. The M0–M3 implementation gates have passed. M4 verification and the B01–B12/B15 backlog gates remain open where noted. The local app build uses an ad-hoc signature. There is no notarized release or verified clean-Mac installer yet. The earlier [M4 local beta package](Docs/M4-local-beta.md) remains version 0.5.3.
 
 ## Requirements and build
 
@@ -20,10 +20,11 @@ bash Scripts/build-app.sh
 open dist/LibraryOn.app
 ```
 
-The build uses vendored dependencies and creates `dist/LibraryOn.app`. A local QA archive of version 0.8.1 is available at [LibraryOn-0.8.1-local.zip](dist/LibraryOn-0.8.1-local.zip). Reopen the app after rebuilding. The generated `dist/` and `.build/` directories are ignored by Git. Run the test suite with `swift test` on macOS. The optional 1,000-book/FSEvents benchmark is documented in [M4 validation](Docs/M4-validation.md).
+The build uses vendored dependencies and creates `dist/LibraryOn.app`. A local QA archive of version 0.8.2 is available at [LibraryOn-0.8.2-local.zip](dist/LibraryOn-0.8.2-local.zip). Reopen the app after rebuilding. The generated `dist/` and `.build/` directories are ignored by Git. Run the test suite with `swift test` on macOS. The optional 1,000-book/FSEvents benchmark is documented in [M4 validation](Docs/M4-validation.md).
 
 ## What works now
 
+- Closing the last window leaves LibraryOn running, and activating its Dock icon opens the library window again.
 - Browse multiple library roots and subfolders; search titles, sort, and switch between grid and list views. The saved index appears while the folder is checked again in the background. The Library header keeps the same toolbar height after returning from a book, and empty states provide actions for adding a folder, refreshing, or clearing a search.
 - Add a Google Drive for desktop, OneDrive, or iCloud Drive folder from Finder with **Add from Cloud**. LibraryOn indexes supported files without downloading every cover; an online-only book is prepared when opened. Folder access and bookmarks remain local; reading progress stays locally available and can also use the optional sync below.
 - Choose a Google Drive or OneDrive folder in Settings to sync reading positions through one `LibraryOn-progress.json` file. Local progress remains available offline; visual and audio positions merge separately. The [versioned JSON format](Docs/Progress-sync-format.md) is designed for a future mobile app using its system file provider. Real provider and mobile interoperability checks remain open.
