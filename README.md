@@ -6,7 +6,7 @@ _Bahasa Indonesia: LibraryOn membantu menjelajahi folder PDF/EPUB/TXT/DOCX, memb
 
 ## Project status
 
-This repository contains a **prototype**, currently version **0.8.3 (26)**. The M0–M3 implementation gates have passed. M4 verification and the B01–B12/B15 backlog gates remain open where noted. The local app build uses an ad-hoc signature. There is no notarized release or verified clean-Mac installer yet. The earlier [M4 local beta package](Docs/M4-local-beta.md) remains version 0.5.3.
+This repository contains a macOS **prototype**, currently version **0.8.3 (26)**, and a separate [Android preview](Android/README.md) at version **0.1.0**. The M0–M3 macOS implementation gates have passed. M4 verification and the B01–B12/B15 backlog gates remain open where noted. The local Mac app build uses an ad-hoc signature. There is no notarized release or verified clean-Mac installer yet. The earlier [M4 local beta package](Docs/M4-local-beta.md) remains version 0.5.3.
 
 ## Requirements and build
 
@@ -21,6 +21,8 @@ open dist/LibraryOn.app
 ```
 
 The build uses vendored dependencies and creates `dist/LibraryOn.app`. A local QA archive of version 0.8.3 is available at [LibraryOn-0.8.3-local.zip](dist/LibraryOn-0.8.3-local.zip). Reopen the app after rebuilding. The generated `dist/` and `.build/` directories are ignored by Git. Run the test suite with `swift test` on macOS. The optional 1,000-book/FSEvents benchmark is documented in [M4 validation](Docs/M4-validation.md).
+
+The Android preview is built separately with `cd Android && ./gradlew :app:assembleDebug`. It supports SAF folder browsing, visual PDF reading, text reading and system TTS for EPUB/TXT/DOCX, local progress, and manual v1 progress-file sync. See its [build guide and current limits](Android/README.md).
 
 ## What works now
 
